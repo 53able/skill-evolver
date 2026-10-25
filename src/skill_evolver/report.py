@@ -2,7 +2,7 @@
 import json
 import random
 import statistics
-from .store import Store, latest_trials, event_scope, method_validity, runtime_validity
+from .store import Store, latest_trials, event_scope, method_validity, runtime_validity, verify_experiment_directory
 from .config import mock_only
 
 
@@ -37,6 +37,7 @@ def paired_interval(rows, left, right, search, seed=0, iterations=10000):
 
 
 def build_report(directory):
+    verify_experiment_directory(directory)
     store = Store(directory)
     manifest = json.loads((store.path / 'experiment.json').read_text())
     config = manifest['config']

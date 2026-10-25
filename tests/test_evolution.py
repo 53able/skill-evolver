@@ -2,6 +2,8 @@ from pathlib import Path
 import json
 import tempfile
 import unittest
+from unittest.mock import patch
+from skill_evolver.cli import main
 from skill_evolver.config import load_config, trial_reservation
 from skill_evolver.evolution import Experiment
 from skill_evolver.report import build_report, paired_interval
@@ -40,6 +42,43 @@ class EvolutionTests(unittest.TestCase):
         self.config = load_config(CONFIG)
         self.config['search']['population'] = 3
         self.config['search']['generations'] = 2
+
+    def test_experiment_commands_reject_foreign_manifests_without_changes(self):
+        for kind, version in [('skill-improvement', 1), ('skill-improvement', 2), ('unknown', 1)]:
+            for command in ('initialize', 'run', 'cli_run', 'smoke', 'resume', 'report', 'build_report'):
+                with self.subTest(kind=kind, version=version, command=command), tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    (root / 'manifest.json').write_text(json.dumps({'kind': kind, 'schema_version': version}))
+                    (root / 'original.json').write_text('{"text":"retained improvement snapshot"}\n')
+                    (root / 'journal.jsonl').write_text('{"kind":"call_started","call_id":"prepare/evaluation"}\n')
+                    before = {p.name: p.read_bytes() for p in root.iterdir()}
+                    runner = FakeRunner()
+                    if command in ('cli_run', 'smoke', 'resume', 'report'):
+                        args = ([command.removeprefix('cli_'), str(CONFIG), '--output', directory]
+                                if command in ('cli_run', 'smoke') else [command, directory])
+                        with patch('skill_evolver.runner.TrialRunner', return_value=runner), patch('sys.stderr'), patch('sys.stdout'):
+                            self.assertEqual(main(args), 1)
+                    elif command == 'build_report':
+                        with self.assertRaisesRegex(ValueError, 'not an experiment directory'):
+                            build_report(directory)
+                    else:
+                        with self.assertRaisesRegex(ValueError, 'not an experiment directory'):
+                            experiment = Experiment(self.config, directory, runner)
+                            getattr(experiment, command)()
+                    self.assertEqual({p.name: p.read_bytes() for p in root.iterdir()}, before)
+                    self.assertEqual(runner.prepared, [])
+                    self.assertEqual(runner.calls, [])
+
+    def test_initialize_rechecks_manifest_before_resource_preparation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = FakeRunner()
+            experiment = Experiment(self.config, directory, runner)
+            marker = Path(directory) / 'manifest.json'
+            marker.write_text('{"kind":"skill-improvement","schema_version":1}')
+            with self.assertRaisesRegex(ValueError, 'not an experiment directory'):
+                experiment.initialize()
+            self.assertEqual(list(Path(directory).iterdir()), [marker])
+            self.assertEqual(runner.prepared, [])
 
     def test_complete_replay_cache_and_phase_barriers(self):
         with tempfile.TemporaryDirectory() as directory:

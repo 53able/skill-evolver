@@ -6,6 +6,13 @@ from contextlib import contextmanager
 import fcntl
 
 
+def verify_experiment_directory(directory):
+    # Experiment state uses experiment.json; another workflow's manifest is never ours.
+    manifest = Path(directory) / 'manifest.json'
+    if manifest.exists() or manifest.is_symlink():
+        raise ValueError('not an experiment directory: foreign manifest.json exists')
+
+
 class Store:
     def __init__(self, path):
         self.path = Path(path)
