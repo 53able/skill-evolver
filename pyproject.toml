@@ -1,0 +1,20 @@
+[build-system]
+requires = []
+build-backend = "_build_backend"
+backend-path = ["."]
+
+[project]
+name = "skill-evolver"
+version = "0.1.0"
+description = "Budgeted, isolated skill evolution experiments"
+requires-python = ">=3.11"
+dependencies = []
+license = "MIT"
+license-files = ["LICENSE"]
+
+[project.scripts]
+skill-evolver = "skill_evolver.cli:main"
+
+[tool.uv]
+# Checkout execution uses PYTHONPATH=src; the backend builds ordinary wheels only.
+package = false

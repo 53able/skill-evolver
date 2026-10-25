@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.venv/
+.uv-cache/
+*.whl
+build/
+dist/
+.mypy_cache/
+.ruff_cache/
+runs/
+trial-output/
+.omx/
+.omc/
+.omx-state-locks/
+.omx-state-locks.identity.json

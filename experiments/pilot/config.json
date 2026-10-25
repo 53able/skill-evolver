@@ -1,0 +1,203 @@
+{
+  "experiment_id": "mock-pilot",
+  "skill_path": "seed-skill/SKILL.md",
+  "model": {
+    "provider": "mock",
+    "id": "mock-tools-v1",
+    "options": {}
+  },
+  "proposal_model": {
+    "provider": "mock",
+    "id": "synthetic-semantic-v1",
+    "options": {}
+  },
+  "sandbox": {
+    "image": "alpine:3",
+    "timeout_seconds": 10,
+    "max_file_bytes": 65536,
+    "max_total_bytes": 131072,
+    "max_files": 8
+  },
+  "limits": {
+    "max_steps": 4,
+    "max_input_tokens": 8192,
+    "max_output_tokens": 1024,
+    "timeout_seconds": 20
+  },
+  "budgets": {
+    "search": {
+      "tokens": 2000000,
+      "money": 1
+    },
+    "selection": {
+      "tokens": 2000000,
+      "money": 1
+    },
+    "final": {
+      "tokens": 2000000,
+      "money": 1
+    }
+  },
+  "pricing": {
+    "version": "mock-zero-billed-v1",
+    "per_token": 0
+  },
+  "search": {
+    "seed": 17,
+    "population": 8,
+    "generations": 2,
+    "elites": 2,
+    "tournament_size": 2,
+    "crossover_probability": 0.5,
+    "independent_searches": 1
+  },
+  "repeats": {
+    "search": 1,
+    "selection": 3,
+    "final": 3
+  },
+  "infrastructure_retries": 1,
+  "splits": {
+    "search": [
+      {
+        "id": "search-0",
+        "group_id": "search-group-0",
+        "prompt": "Convert /input/input.txt to uppercase in /output/result.txt.",
+        "operation": "uppercase",
+        "files": {
+          "input.txt": "hello world\n"
+        },
+        "output_paths": [
+          "result.txt"
+        ],
+        "expected": {
+          "result.txt": "HELLO WORLD\n"
+        }
+      },
+      {
+        "id": "search-1",
+        "group_id": "search-group-1",
+        "prompt": "Convert /input/input.txt to uppercase in /output/result.txt.",
+        "operation": "uppercase",
+        "files": {
+          "input.txt": "aB 123\n"
+        },
+        "output_paths": [
+          "result.txt"
+        ],
+        "expected": {
+          "result.txt": "AB 123\n"
+        }
+      },
+      {
+        "id": "search-2",
+        "group_id": "search-group-2",
+        "prompt": "Convert /input/input.txt to uppercase in /output/result.txt.",
+        "operation": "uppercase",
+        "files": {
+          "input.txt": ""
+        },
+        "output_paths": [
+          "result.txt"
+        ],
+        "expected": {
+          "result.txt": ""
+        }
+      }
+    ],
+    "selection": [
+      {
+        "id": "selection-0",
+        "group_id": "selection-group-0",
+        "prompt": "Convert /input/input.txt to uppercase in /output/result.txt.",
+        "operation": "uppercase",
+        "files": {
+          "input.txt": "selected text\n"
+        },
+        "output_paths": [
+          "result.txt"
+        ],
+        "expected": {
+          "result.txt": "SELECTED TEXT\n"
+        }
+      },
+      {
+        "id": "selection-1",
+        "group_id": "selection-group-1",
+        "prompt": "Convert /input/input.txt to uppercase in /output/result.txt.",
+        "operation": "uppercase",
+        "files": {
+          "input.txt": "cD 456\n"
+        },
+        "output_paths": [
+          "result.txt"
+        ],
+        "expected": {
+          "result.txt": "CD 456\n"
+        }
+      },
+      {
+        "id": "selection-2",
+        "group_id": "selection-group-2",
+        "prompt": "Convert /input/input.txt to uppercase in /output/result.txt.",
+        "operation": "uppercase",
+        "files": {
+          "input.txt": "space here\n"
+        },
+        "output_paths": [
+          "result.txt"
+        ],
+        "expected": {
+          "result.txt": "SPACE HERE\n"
+        }
+      }
+    ],
+    "final": [
+      {
+        "id": "final-0",
+        "group_id": "final-group-0",
+        "prompt": "Convert /input/input.txt to uppercase in /output/result.txt.",
+        "operation": "uppercase",
+        "files": {
+          "input.txt": "unseen result\n"
+        },
+        "output_paths": [
+          "result.txt"
+        ],
+        "expected": {
+          "result.txt": "UNSEEN RESULT\n"
+        }
+      },
+      {
+        "id": "final-1",
+        "group_id": "final-group-1",
+        "prompt": "Convert /input/input.txt to uppercase in /output/result.txt.",
+        "operation": "uppercase",
+        "files": {
+          "input.txt": "eF 789\n"
+        },
+        "output_paths": [
+          "result.txt"
+        ],
+        "expected": {
+          "result.txt": "EF 789\n"
+        }
+      },
+      {
+        "id": "final-2",
+        "group_id": "final-group-2",
+        "prompt": "Convert /input/input.txt to uppercase in /output/result.txt.",
+        "operation": "uppercase",
+        "files": {
+          "input.txt": "last line without newline"
+        },
+        "output_paths": [
+          "result.txt"
+        ],
+        "expected": {
+          "result.txt": "LAST LINE WITHOUT NEWLINE"
+        }
+      }
+    ]
+  }
+}
