@@ -1,5 +1,7 @@
 # Experiment protocol
 
+Language: English | [日本語](../ja-JP/experiments/protocol.md)
+
 Run Python commands through uv. Prepare the dependency-free checkout with `uv sync --locked`, then use `PYTHONPATH=src uv run --locked python -m skill_evolver ...`. Run the complete container-backed test suite with `SKILL_EVOLVER_DOCKER_TESTS=1 PYTHONPATH=src uv run --locked python -m unittest discover -s tests -v`. The uv project does not install an editable package; the `src` import path is explicit. See the README for CLI commands and optional wheel installation through `uv pip`.
 
 This implementation is a local experimental harness. The bundled deterministic mock model performs an `uppercase` operation with real Docker tools, independent of candidate quality. Its synthetic token accounting and zero billed USD verify execution. Evaluate skill quality with real models and held-out tasks. Unsupported providers fail closed; the configured OpenAI path is described below. No credentials or real model calls are required for the fixture.

@@ -1,5 +1,7 @@
 # Docker runtime evidence
 
+Language: English | [日本語](ja-JP/runtime-evidence.md)
+
 Verified locally on 2026-10-25 using uv-managed Python stdlib and Docker Engine
 server 29.8.2 (Docker Desktop). Alpine `alpine:3` resolved locally to
 `sha256:f7bbaec1bd0330a8dba26f03e05f421bb3c8b807bb41873df3c3b0c3d1083d8f`.

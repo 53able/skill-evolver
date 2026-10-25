@@ -1,5 +1,7 @@
 # Host-side OpenAI Responses adapter
 
+Language: English | [日本語](ja-JP/model-evidence.md)
+
 `OpenAIJSONModel(model_config).complete(context, *, max_input_tokens,
 max_output_tokens, timeout_seconds)` returns `{content: dict, input_tokens: int,
 output_tokens: int, tokens: int}`. `ModelError(message, tokens=...)` exposes usage:

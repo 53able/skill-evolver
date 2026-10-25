@@ -1,5 +1,7 @@
 # Mock experiment verification — 2026-10-25
 
+Language: English | [日本語](../ja-JP/experiments/report-001.md)
+
 The deterministic mock model executes a public `uppercase` operation with real Docker tools. The results establish workflow execution and resume behavior. Measuring skill quality or GA effectiveness requires a separate real-model experiment. This verification made no live paid model calls.
 
 ## Workflow results
