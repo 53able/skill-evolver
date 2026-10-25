@@ -29,15 +29,16 @@ You drive the `skill-evolver improve` workflow for the user. The user decides; y
    Claude Code: set the Bash tool `timeout: 300000`; the default two minutes can cut it off. Other agents: use a timeout of at least five minutes.
    - On failure, show the error and the hint line printed under it on stderr, then stop. For `unsupported_cli_version`, ask the user before trying again with `--allow-untested-cli` and a new output directory.
    - If `state` is `unsupported`, explain `reason` and stop.
+   - If `warnings` says the evaluation is too weak, explain that `run` will refuse it until `evaluation.json` has 3-12 criteria with at least one required, and offer to edit it with the user.
 4. Review with the user. Give them the path `<dir>/evaluation.md` so they can read it in full, and summarize: purpose, fixed constraints, criteria (mark required ones), and the three development and three held-out prompts. Ask them to check:
    - Do the prompts look like real uses of the skill?
    - Are the required criteria the ones that matter, neither too lax nor impossible?
    - Would the current skill already pass everything? Then no improvement can be shown. Ask the user for a request where the skill actually fell short, and use it to replace one case, or add the observed failure as a required criterion.
    - Are the held-out prompts different in substance from the development prompts?
-   Ask whether to approve, edit, or stop. To edit, change `<dir>/evaluation.json` only: keep exactly three cases per split (replace, do not add), unique `id`/`group_id` values, and 1-12 criteria. Then run `skill-evolver improve report <dir> --json`, summarize the changes, and ask for approval again.
+   Ask whether to approve, edit, or stop. To edit, change `<dir>/evaluation.json` only: keep exactly three cases per split (replace, do not add), unique `id`/`group_id` values, and 3-12 criteria with at least one `required: true`. Then run `skill-evolver improve report <dir> --json`, summarize the changes, and ask for approval again.
 5. Run only after explicit approval:
    `skill-evolver improve run <dir> --approve-evaluation <approval_hash> --json > <dir>.out 2> <dir>.log`
-   It makes up to about 45 model calls and can take up to one hour. Do not let a tool timeout kill it:
+   It makes about 45 model calls (up to 60 with timeout retries) and can take up to one hour. Do not let a tool timeout kill it:
    - Claude Code: run it with the Bash tool's `run_in_background: true` and `timeout: 3900000`.
    - Other agents: start it detached with `nohup ... &` and the same redirections.
    Tell the user it is running. Check progress with `tail -n 3 <dir>.log` (lines like `model call 12 (limit 60)`). It has finished when the process has exited (`ps -p <pid>` with the PID from starting it); then `<dir>.out` holds the JSON result, or `<dir>.log` shows the error. Do not run `improve report` while it runs: an `active writer` error only means the run is still going. If your agent is not notified when background work ends, tell the user to ask you to check the result later.

@@ -87,6 +87,13 @@ def validate_evaluation(value):
     return value
 
 
+def too_weak(evaluation):
+    """Structurally valid but unable to show an improvement or block regressions; checked before approval."""
+    criteria = evaluation['criteria']
+    return evaluation['execution_scope'] == 'text_only' and (
+        len(criteria) < 3 or not any(criterion['required'] for criterion in criteria))
+
+
 def validate_response(value, kind, evaluation=None):
     schemas = {'output': OUTPUT_SCHEMA, 'proposal': PROPOSAL_SCHEMA, 'purpose': PURPOSE_SCHEMA,
                'judgment': JUDGMENT_SCHEMA}
@@ -120,7 +127,10 @@ def evaluation_context(skill):
             'file/browser/service operations or companion files are essential, return execution_scope '
             'unsupported, explain why, and leave both splits empty. Otherwise generate exactly '
             'three development and three genuinely distinct heldout tasks, distinct IDs and groups '
-            'across splits, one to twelve binary criteria, and binary_pass_count aggregation. '
+            'across splits, three to twelve binary criteria with at least one required, and '
+            'binary_pass_count aggregation. Make the suite discriminating: include realistic edge '
+            'cases and criteria that a vague or minimal version of this skill would likely fail, '
+            'so that a better skill can score higher. '
             'The user will review the purpose, constraints and all criteria before improvement.',
             'skill': skill}
 

@@ -242,10 +242,24 @@ def _prompts_fit(evaluation, original, proposed, limit):
                for c in contexts)
 
 
+def _read_only(calls, identity, context, schema):
+    """Task execution and judging change nothing, so one timed-out call is reissued under a new ID."""
+    try:
+        return calls.complete(identity, context, schema)
+    except ProviderError as exc:
+        if exc.reason != 'timeout':
+            raise
+    if calls.deadline - time.monotonic() < calls.limits['call_timeout']:
+        # The timeout came from the run deadline, which a retry cannot fix.
+        raise ProviderError('run_deadline')
+    calls.store.append({'kind': 'call_retried', 'call_id': identity, 'reason': 'timeout'})
+    return calls.complete(identity + '/retry', context, schema)
+
+
 def _trial(calls, evaluation, skill, case, identity):
-    response = ev.validate_response(calls.complete(identity + '/execute',
+    response = ev.validate_response(_read_only(calls, identity + '/execute',
         ev.execution_context(evaluation, skill, case), ev.OUTPUT_SCHEMA), 'output')
-    judgment = ev.validate_response(calls.complete(identity + '/judge',
+    judgment = ev.validate_response(_read_only(calls, identity + '/judge',
         ev.judgment_context(evaluation, case, response['output']), ev.JUDGMENT_SCHEMA), 'judgment', evaluation)
     row = {'case_id': case['id'], 'output': response['output'], 'criteria': judgment['criteria']}
     calls.store.append({'kind': 'trial', 'trial_id': identity, **row})
@@ -277,6 +291,9 @@ def run(directory, approval, *, provider=None, progress=None):
         else:
             if manifest['state'] != 'draft':
                 raise ValueError('run is not a reviewable draft; start a new prepare')
+            if ev.too_weak(current['evaluation']):
+                raise ValueError('evaluation requires three to twelve criteria with at least one required; '
+                                 'edit evaluation.json, then run improve report')
             # Snapshot exactly the bytes represented by the already-checked in-memory value.
             store.write('approved.json', current)
             bundle = current

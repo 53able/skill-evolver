@@ -159,7 +159,8 @@ class BudgetContracts(Fixture):
 class StrictJudgmentContracts(unittest.TestCase):
     def judgment(self):
         return {'criteria': [{'id': 'purpose', 'passed': True, 'reason': 'ok'},
-                             {'id': 'quality', 'passed': False, 'reason': 'vague'}]}
+                             {'id': 'quality', 'passed': False, 'reason': 'vague'},
+                             {'id': 'style', 'passed': True, 'reason': 'concise'}]}
 
     def test_judgment_rows_must_match_fixed_criteria_exactly(self):
         ev.validate_response(self.judgment(), 'judgment', evaluation())

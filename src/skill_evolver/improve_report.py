@@ -2,6 +2,7 @@
 import json
 import shlex
 from .cli_provider import BOUNDARY
+from . import improve_eval as ev
 from .improve import (ImproveStore, guard_directory, load_bundle, fingerprint, _read,
                       write_text, verify_original)
 
@@ -80,6 +81,9 @@ def report_locked(store):
                'model_identity': bundle['model_identity'], 'limits': bundle['limits'],
                'calls_started': len(starts), 'unresolved_calls': unresolved,
                'observed_usage': usage, 'cost_usd': None, 'warnings': warnings}
+    if manifest['state'] == 'draft' and ev.too_weak(bundle['evaluation']):
+        warnings.append('Evaluation is too weak to run: it needs 3-12 criteria with at least one required. '
+                        'Edit evaluation.json, then run improve report.')
     if bundle['provider_profile'].get('version_tested') is False:
         warnings.append('CLI version ' + bundle['provider_profile']['cli_version']
                         + ' is untested; it was allowed with --allow-untested-cli.')

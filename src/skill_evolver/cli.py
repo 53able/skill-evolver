@@ -115,6 +115,11 @@ def improve(args):
             # Display and approve one in-memory value; the file may be edited concurrently.
             bundle = load_bundle(store.path)[1]
         approval = fingerprint(bundle)
+        from .improve_eval import too_weak
+        if too_weak(bundle['evaluation']) and not (store.path / 'approved.json').exists():
+            # Refuse before asking, rather than after the user answers y.
+            raise ValueError('evaluation requires three to twelve criteria with at least one required; '
+                             'edit evaluation.json, then run improve report')
         if args.json or not (sys.stdin.isatty() and sys.stdout.isatty()):
             raise ValueError('approval required: run improve run in a terminal to confirm, '
                              'or pass --approve-evaluation with approval_hash from improve report --json')

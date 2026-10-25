@@ -26,7 +26,8 @@ def evaluation():
             'development': [{'id': 'dev' + str(i), 'group_id': 'devg' + str(i), 'prompt': 'Development ' + str(i)} for i in range(3)],
             'heldout': [{'id': 'held' + str(i), 'group_id': 'heldg' + str(i), 'prompt': 'Heldout ' + str(i)} for i in range(3)],
             'criteria': [{'id': 'purpose', 'description': 'Answer the request', 'required': True},
-                         {'id': 'quality', 'description': 'Be clear', 'required': False}],
+                         {'id': 'quality', 'description': 'Be clear', 'required': False},
+                         {'id': 'style', 'description': 'Be concise', 'required': False}],
             'aggregation': 'binary_pass_count'}
 
 
@@ -64,11 +65,16 @@ if mode == 'error': print('rate limit reached', file=sys.stderr); sys.exit(1)
 if 'skill' in context and 'Prepare an evaluation' in context['task']:
     result = json.loads(os.environ['FAKE_EVAL'])
 elif 'current_skill' in context:
+    if os.environ.get('FAKE_PROPOSAL_TIMEOUT'): time.sleep(10)
     result = {'skill_text': context['current_skill']+'\nIMPROVED\n'}
 elif 'proposed_skill' in context:
     result = {'preserved': mode != 'purpose', 'reason': 'The writing purpose is unchanged'}
 elif 'output' in context:
-    result = {'criteria': [{'id': c['id'], 'passed': c['id']=='purpose' or context['output']=='better', 'reason': 'Fixed criterion checked'} for c in context['criteria']]}
+    once = os.environ.get('FAKE_JUDGE_TIMEOUT_ONCE')
+    if once and not os.path.exists(once):
+        open(once, 'w').close(); time.sleep(10)
+    if os.environ.get('FAKE_JUDGE_TIMEOUT_ALWAYS'): time.sleep(10)
+    result = {'criteria': [{'id': c['id'], 'passed': c['id'].startswith('purpose') or context['output']=='better', 'reason': 'Fixed criterion checked'} for c in context['criteria']]}
 else:
     result = {'output': 'better' if 'IMPROVED' in context.get('skill','') else 'base'}
 if provider == 'claude':
@@ -439,13 +445,15 @@ class ImprovementTests(unittest.TestCase):
             code, out, _, _ = self.cli('run', self.output, tty=True, answer='y')
         self.assertEqual(code, 0)
         self.assertIn('improvement observed', out)
-        self.assertIn('Held-out:    original 3/6 -> best revision 6/6', out)
+        self.assertIn('Held-out:    original 3/9 -> best revision 9/9', out)
         self.assertIn('cp ', out)
         self.assertEqual(report(self.output)['comparison']['approval_hash'], approval)
         self.assertEqual(self.source.read_text(), SKILL)
 
     def test_saturated_development_skips_revisions_without_changing_the_result(self):
-        easy = evaluation(); easy['criteria'] = easy['criteria'][:1]
+        easy = evaluation()
+        easy['criteria'] = [{'id': 'purpose' + str(i), 'description': 'Answer ' + str(i), 'required': i == 0}
+                            for i in range(3)]
         with patch.dict(os.environ, {'FAKE_EVAL': json.dumps(easy)}):
             result = run(self.output, self.prepared()['approval_hash'])
         self.assertEqual(result['status'], 'no_observed_improvement')
@@ -457,6 +465,77 @@ class ImprovementTests(unittest.TestCase):
             code, out, _, _ = self.cli('report', self.output)
         self.assertIn('revisions were skipped', out)
         self.assertNotIn('no revision scored higher', out)
+
+    def short_call_timeout(self):
+        self.prepared()
+        manifest = json.loads((self.output / 'manifest.json').read_text())
+        manifest['limits']['call_timeout'] = 6
+        (self.output / 'manifest.json').write_text(json.dumps(manifest))
+        return report(self.output)['approval_hash']
+
+    def test_timed_out_judging_is_retried_once(self):
+        approval = self.short_call_timeout()
+        with patch.dict(os.environ, {'FAKE_JUDGE_TIMEOUT_ONCE': str(self.root / 'judge-timed-out')}):
+            result = run(self.output, approval)
+        self.assertEqual(result['status'], 'observed_improvement')
+        events = ImproveStore(self.output).events()
+        retried = [e['call_id'] for e in events if e['kind'] == 'call_retried']
+        self.assertEqual(retried, ['development/original/dev0/judge'])
+        finished = {e['call_id']: e['status'] for e in events if e['kind'] == 'call_finished'}
+        self.assertEqual(finished['development/original/dev0/judge'], 'timeout')
+        self.assertEqual(finished['development/original/dev0/judge/retry'], 'success')
+        self.assertEqual(result['unresolved_calls'], [])
+
+    def test_a_second_timeout_stops_the_run(self):
+        approval = self.short_call_timeout()
+        with patch.dict(os.environ, {'FAKE_JUDGE_TIMEOUT_ALWAYS': '1'}):
+            result = run(self.output, approval)
+        self.assertEqual((result['status'], result['reason']), ('incomplete', 'timeout'))
+        events = ImproveStore(self.output).events()
+        self.assertEqual([e['call_id'] for e in events if e['kind'] == 'call_retried'],
+                         ['development/original/dev0/judge'])
+        self.assertEqual(result['unresolved_calls'], [])
+
+    def test_proposals_and_other_failures_are_not_retried(self):
+        approval = self.short_call_timeout()
+        with patch.dict(os.environ, {'FAKE_PROPOSAL_TIMEOUT': '1'}):
+            result = run(self.output, approval)
+        self.assertEqual((result['status'], result['reason']), ('incomplete', 'timeout'))
+        self.assertNotIn('call_retried', [e['kind'] for e in ImproveStore(self.output).events()])
+        shutil.rmtree(self.output)
+        approval = self.prepared()['approval_hash']
+        before = len(self.calls())
+        with patch.dict(os.environ, {'FAKE_MODE': 'error'}):
+            result = run(self.output, approval)
+        self.assertEqual(result['reason'], 'rate_limit')
+        self.assertEqual(len(self.calls()), before + 1)
+
+    def test_weak_evaluation_is_saved_but_cannot_be_approved_until_edited(self):
+        weak = evaluation(); weak['criteria'] = [dict(weak['criteria'][1])]
+        with patch.dict(os.environ, {'FAKE_EVAL': json.dumps(weak)}):
+            prepared = self.prepared()
+        self.assertEqual(prepared['state'], 'draft')
+        self.assertTrue(any('too weak' in item for item in prepared['warnings']))
+        before = len(self.calls())
+        with self.assertRaisesRegex(ValueError, 'three to twelve criteria'):
+            run(self.output, prepared['approval_hash'])
+        code, _, err, asked = self.cli('run', self.output, tty=True, answer='y')
+        self.assertEqual((code, asked), (1, False))
+        self.assertIn('three to twelve criteria', err)
+        self.assertEqual(len(self.calls()), before)
+        (self.output / 'evaluation.json').write_text(json.dumps(evaluation()))
+        reviewed = report(self.output)
+        self.assertFalse(any('too weak' in item for item in reviewed['warnings']))
+        self.assertEqual(run(self.output, reviewed['approval_hash'])['status'], 'observed_improvement')
+
+    def test_warnings_follow_the_terminal_language(self):
+        from skill_evolver.improve_text import warning
+        text = 'Model identity is pinned by the explicit selector only; server-side identity is unverified.'
+        with patch.dict(os.environ, {'LANG': 'ja_JP.UTF-8', 'LC_ALL': '', 'LC_MESSAGES': ''}):
+            self.assertIn('指定した名前でのみ固定', warning(text))
+            self.assertIn('2.9.9 は未検証', warning('CLI version 2.9.9 is untested; it was allowed with --allow-untested-cli.'))
+        with patch.dict(os.environ, {'LANG': 'en_US.UTF-8', 'LC_ALL': '', 'LC_MESSAGES': ''}):
+            self.assertEqual(warning(text), text)
 
     def test_edit_while_confirming_is_not_run(self):
         self.prepared()
@@ -562,6 +641,7 @@ class ImprovementTests(unittest.TestCase):
 class EvaluationContractTests(unittest.TestCase):
     def test_reject_bad_cases_and_scores(self):
         for mutate in [lambda e:e.update(extra=1), lambda e:e['heldout'][0].update(group_id='devg0'),
+
                        lambda e:e['heldout'][0].update(prompt='Development 0'),
                        lambda e:e['criteria'][0].update(required=1)]:
             data = evaluation(); mutate(data)

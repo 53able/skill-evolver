@@ -1,5 +1,6 @@
 """Human-readable terminal text for the improvement workflow (English or Japanese)."""
 import os
+import re
 import shlex
 import unicodedata
 
@@ -39,11 +40,14 @@ HINTS = [
      'APIキーによるログインは使いません。'),
     ('authentication_required', 'Log in with your subscription first: run `claude` and /login, or `codex login`.',
      '先にサブスクリプションでログインしてください（`claude` で /login、または `codex login`）。'),
-    ('unresolved_model_alias', 'The CLI did not report which model the alias selected. Pass a full model ID '
-     '(for Codex, the ID shown by /model).',
-     'CLIが別名の実モデル名を返しませんでした。完全なモデルIDを指定してください（Codexでは /model に表示されるID）。'),
-    ('bundled file references', 'Relative links to other files are not supported; only URLs and #heading links.',
-     'ほかのファイルへの相対リンクは未対応です（URLと #見出し へのリンクのみ使えます）。'),
+    ('unresolved_model_alias', 'Pass a full model ID instead of an alias. Codex always needs the ID shown by /model; '
+     'Claude accepts an alias only when the CLI reports the model it selected.',
+     '別名ではなく完全なモデルIDを指定してください。Codexでは常に /model に表示されるIDが必要です。'
+     'Claudeの別名は、CLIが実際のモデル名を返す場合だけ使えます。'),
+    ('separate from the source skill directory', 'Choose an --output outside the folder that contains SKILL.md.',
+     '--output には SKILL.md のあるフォルダの外を指定してください。'),
+    ('does not exist or is a symlink', 'Pass the directory created by improve prepare (shown in its output).',
+     'improve prepare が作成した保存先（prepare の出力に表示）を指定してください。'),
     ('provider_and_explicit_model_required', 'Pass --provider claude|codex and a model name with --model.',
      '--provider claude|codex と --model のモデル名を指定してください。'),
     ('rate_limit', 'The subscription usage limit was reached. Wait, then prepare again in a new directory.',
@@ -52,6 +56,13 @@ HINTS = [
      '別のコマンドがこの保存先を使用中です（通常は実行中の improve run）。終了を待ってください。'),
     ('three cases per split', 'Keep exactly three development and three held-out cases; replace cases instead of adding.',
      '改善用・最終確認用の課題は各3件ちょうどにしてください。追加ではなく差し替えで編集します。'),
+    ('evaluation requires three', 'Edit evaluation.json to have 3-12 criteria with at least one required: true, '
+     'run improve report, review it, then run.',
+     'evaluation.json を編集して基準を3〜12件、うち1件以上を required: true にし、improve report で確認してから run してください。'),
+    ('run_deadline', 'The one-hour run limit was reached. Prepare again in a new directory, or try a faster model.',
+     '1回の実行の時間上限（1時間）に達しました。新しい出力先で prepare からやり直すか、より速いモデルを試してください。'),
+    ('bundled file references', 'Relative links to other files are not supported; only URLs and #heading links.',
+     'ほかのファイルへの相対リンクは未対応です（URLと #見出し へのリンクのみ使えます）。'),
     ('already exists', 'Choose a new --output directory; each attempt uses its own directory.',
      '別の --output を指定してください。試行ごとに新しい保存先を使います。'),
     ('approval hash differs', 'The evaluation changed after you reviewed it. Run improve report and review it again.',
@@ -62,9 +73,32 @@ HINTS = [
      'CLIのバージョンや設定が prepare 時と異なります。新しい出力先で prepare からやり直してください。'),
     ('companion files', 'Skills that reference scripts/, references/ or assets/ are not supported yet.',
      'scripts/・references/・assets/ を参照するスキルはまだ対応していません。'),
-    ('timeout', 'A model call exceeded its time limit. Prepare again in a new directory.',
-     'モデル呼び出しが時間上限を超えました。新しい出力先で prepare からやり直してください。'),
+    ('timeout', 'A model call exceeded its time limit (task and judging calls were already retried once). '
+     'Prepare again in a new directory, or try a faster model.',
+     'モデル呼び出しが時間上限を超えました（課題の実行と採点は1回再試行済み）。新しい出力先で prepare からやり直すか、'
+     'より速いモデルを試してください。'),
 ]
+
+
+WARNINGS = [
+    ('Original source is unavailable or changed', '元のスキルが見つからないか変更されています。run の前に新しく prepare してください。'),
+    ('Editable inputs differ from the approved snapshot', '承認後に入力が編集されています。再実行には新しく prepare が必要です。'),
+    ('comparison.json was saved but completion', '比較結果は保存されましたが完了が記録されていないため、結果は表示しません。'),
+    ('Evaluation is too weak to run',
+     '評価案が弱すぎるため実行できません。基準は3〜12件、うち1件以上が必須である必要があります。'
+     'evaluation.json を編集し、improve report を実行してください。'),
+    ('Model identity is pinned by the explicit selector only',
+     'モデルは指定した名前でのみ固定しています。実際に使われたモデルはCLIから確認できません。'),
+]
+
+
+def warning(text):
+    if not japanese():
+        return text
+    untested = re.match(r'CLI version (\S+) is untested', text)
+    if untested:
+        return 'CLIバージョン {} は未検証です（--allow-untested-cli で許可）。'.format(untested.group(1))
+    return next((ja for prefix, ja in WARNINGS if text.startswith(prefix)), text)
 
 
 def hint(error):
@@ -89,7 +123,7 @@ def approval_header(summary, bundle, approval):
     lines = ['', 'CLI: {} {} / {}'.format(profile['provider'], profile['cli_version'], profile['model']),
              _t('Skill: ', '対象スキル: ') + bundle['source_path'],
              _t('Approval SHA256: ', '承認ハッシュ: ') + approval]
-    lines += [_t('Warning: ', '注意: ') + item for item in summary['warnings']]
+    lines += [_t('Warning: ', '注意: ') + warning(item) for item in summary['warnings']]
     return '\n'.join(lines)
 
 
@@ -191,8 +225,8 @@ def render(summary):
     elif state == 'unsupported':
         lines.append(_t('Choose a self-contained text skill.', '自己完結したテキスト系スキルを選んでください。'))
     else:
-        lines.append(_t('Calls are never retried. Start improve prepare again in a new --output directory.',
-                        '呼び出しは再試行しません。新しい --output を指定して improve prepare からやり直してください。'))
+        lines.append(_t('An interrupted or failed run is not resumed. Start improve prepare again in a new --output directory.',
+                        '中断・失敗した実行は再開しません。新しい --output を指定して improve prepare からやり直してください。'))
     if summary.get('warnings'):
-        lines += ['', _t('Warnings:', '注意:')] + ['  - ' + item for item in summary['warnings']]
+        lines += ['', _t('Warnings:', '注意:')] + ['  - ' + warning(item) for item in summary['warnings']]
     return '\n'.join(lines)
