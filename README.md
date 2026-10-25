@@ -21,7 +21,7 @@ PYTHONPATH=src uv run --locked python -m unittest discover -s tests -v
 SKILL_EVOLVER_DOCKER_TESTS=1 PYTHONPATH=src uv run --locked python -m unittest discover -s tests -v
 ```
 
-The uv project uses `package = false`: checkout commands import `src` directly, without an editable installation. There are no runtime dependencies. To use the console command from an ordinary wheel installation in a separate environment:
+The uv project sets `package = false`, so checkout commands import `src` directly without an editable installation. There are no runtime dependencies. To install a wheel and use its console command in a separate environment:
 
 ```sh
 uv venv /tmp/skill-evolver-cli
@@ -31,21 +31,23 @@ uv run --no-project --python /tmp/skill-evolver-cli/bin/python skill-evolver val
 
 ## Execution rules
 
-Start Docker and make `alpine:3` available locally before running trials. The sandbox pins its immutable image ID for the entire experiment. Smoke executes exactly the first three search cases; use a separate output directory from a full run. `resume` checks the frozen configuration/source and reuses recorded results. Exit 2 means incomplete evaluation; exit 1 means invalid configuration or an operational error. Reports are `report.json` (all cases, budgets, diffs) and `report.md`.
+Start Docker and make `alpine:3` available locally before running trials. The sandbox pins its immutable image ID for the entire experiment. Smoke executes the first three search cases. Use a separate output directory from a full run. `resume` checks the frozen configuration/source and reuses recorded results. Exit 2 means incomplete evaluation; exit 1 means invalid configuration or an operational error. Reports are `report.json` (all cases, budgets, diffs) and `report.md`.
 
-Experiment, case and group IDs must match `[A-Za-z0-9][A-Za-z0-9_-]{0,127}`. Each experiment freezes its immutable Docker image ID before its first trial and its observed environment hash before accepting comparable scores. Resume verifies that exact image and recovers only durably recorded owned resources before new trials. Historical run directories without a frozen image ID cannot resume; start a new run. Reports mark missing runtime freezes, mixed environments and unresolved search execution incomplete, even if final trials succeeded. A successful infrastructure retry resolves its own prior failure; an unknown proposal or exhausted infrastructure retry keeps the comparison incomplete even when the original finishes its final trials.
+Experiment, case and group IDs must match `[A-Za-z0-9][A-Za-z0-9_-]{0,127}`. Each experiment freezes its immutable Docker image ID before its first trial and its observed environment hash before accepting comparable scores. Resume verifies that exact image and recovers only durably recorded owned resources before new trials.
+
+Start a new run if an older run directory has no frozen image ID; it cannot resume. Reports mark missing runtime freezes, mixed environments and unresolved search execution incomplete, even if final trials succeeded. A successful infrastructure retry resolves its own prior failure; an unknown proposal or exhausted infrastructure retry keeps the comparison incomplete even when the original finishes its final trials.
 
 See [the protocol](docs/experiments/protocol.md) for split grouping, budget/resume behavior, frozen selection and conditional group bootstrap limitations. The fixture has three cases per split and verifies workflow execution. Build separate search, selection and final datasets for a quality experiment.
 
 ## OpenAI experiments
 
-For a configured OpenAI experiment, set both `model` and `proposal_model` to objects such as:
+To run an OpenAI experiment, configure both `model` and `proposal_model`:
 
 ```json
 {"provider":"openai","id":"YOUR_SUPPORTED_MODEL_ID","options":{},"api_key_env":"OPENAI_API_KEY","count_fee_acknowledged":true}
 ```
 
-Set `pricing.version` to your recorded pricing version and `pricing.per_token` to a positive conservative USD/token rate covering both input and output. Freeze search/selection/final token and monetary budgets before running. `validate` checks the contract without requiring a key or contacting a provider; actual calls require the named host environment variable. The broker uses the fixed OpenAI Responses endpoint, exact input-token preflight, bounded output and host-held credentials; arbitrary HTTP endpoints/options are rejected. Proposals preserve metadata and receive only search failure observations, with deterministic section crossover performed before a GA mutation request. Responses and usage are journaled before candidates enter search.
+Set `pricing.version` to your recorded pricing version and `pricing.per_token` to a positive conservative USD/token rate covering both input and output. Freeze search/selection/final token and monetary budgets before running. `validate` checks the contract without requiring a key or contacting a provider; actual calls require the named host environment variable. The broker uses the fixed OpenAI Responses endpoint, exact input-token preflight, bounded output and host-held credentials; arbitrary HTTP endpoints/options are rejected. Proposals preserve metadata and receive only search failure observations. For GA, the code crosses matching sections before requesting a mutation. Responses and usage are journaled before candidates enter search.
 
 The ledger limits spending calculated from your configured token rate. Check provider pricing and token-count request fees separately before setting budgets; `count_fee_acknowledged` records this requirement. Live API compatibility and real-model improvement are unverified. Reports assess improvement only when both roles use real models; any mock role restricts the report to workflow results.
 

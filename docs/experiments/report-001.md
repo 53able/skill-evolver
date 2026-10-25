@@ -2,15 +2,15 @@
 
 Language: English | [日本語](../ja-JP/experiments/report-001.md)
 
-The deterministic mock model executes a public `uppercase` operation with real Docker tools. The results establish workflow execution and resume behavior. Measuring skill quality or GA effectiveness requires a separate real-model experiment. This verification made no live paid model calls.
+The deterministic mock model runs the public `uppercase` operation through Docker tools. This test verified execution and resume behavior. Measuring skill quality or GA effectiveness requires a separate real-model experiment. This verification made no live paid model calls.
 
 ## Workflow results
 
 A reduced experiment used population 3, one generation, one independent search, three search cases, one selection case and one final case. Selection and final evaluation each used three repeats.
 
-`validate`, a separate-directory three-case `smoke`, `run`, `resume` and `report` completed successfully through uv. Original, sequential and GA completed their final trials. The journal contained 39 trial records before and after resume, with 39 resource allocations and 39 releases. No completed trial was repeated.
+The uv commands `validate`, `smoke`, `run`, `resume` and `report` all completed successfully. Smoke used three cases and a separate output directory. Original, sequential and GA completed their final trials. The journal contained 39 trial records before and after resume, with 39 resource allocations and 39 releases. No completed trial was repeated.
 
-The experiment froze these runtime identifiers:
+The experiment recorded these fixed runtime identifiers:
 
 - Image: `sha256:f7bbaec1bd0330a8dba26f03e05f421bb3c8b807bb41873df3c3b0c3d1083d8f`
 - Environment: `f65d337e375d6c9e8d37fd1405eb11d7be09eb4410c3f39b6156c0898d4a8140`

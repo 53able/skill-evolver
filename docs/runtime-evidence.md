@@ -2,7 +2,7 @@
 
 Language: English | [日本語](ja-JP/runtime-evidence.md)
 
-Verified locally on 2026-10-25 using uv-managed Python stdlib and Docker Engine
+Local tests ran on 2026-10-25 with uv-managed Python stdlib and Docker Engine
 server 29.8.2 (Docker Desktop). Alpine `alpine:3` resolved locally to
 `sha256:f7bbaec1bd0330a8dba26f03e05f421bb3c8b807bb41873df3c3b0c3d1083d8f`.
 Prepare the image locally before starting trials. All container invocations use
@@ -12,8 +12,8 @@ Prepare the image locally before starting trials. All container invocations use
 
 `TrialRunner(config).run(skill_text, case, trial_id=...)` returns status, outputs,
 tokens, duration_seconds, termination_reason, model (provider/id/options),
-environment_hash, skill_loaded and transcript. Success means collection succeeded;
-correctness belongs to the external evaluator. Only id, group_id, prompt, files,
+environment_hash, skill_loaded and transcript. A success status means artifact collection succeeded. The external evaluator
+checks the output for correctness. Only id, group_id, prompt, files,
 output_paths and operation cross the public case boundary. expected is never read.
 
 `prepare_environment(pinned_image_id=None)` resolves one local immutable image ID,
@@ -21,13 +21,13 @@ sets the internal sandbox image to it and returns it. Subsequent calls preserve 
 ID; a conflicting supplied ID fails. On resume, supply the manifest's exact ID;
 it must be locally available and resolve identically. Each sandbox verifies its
 configured immutable image, never re-resolving the original mutable tag after freeze.
-Core owns durable manifest storage and comparison acceptance. The environment hash
+The experiment controller saves the manifest and decides which results enter comparisons. The environment hash
 includes the pinned image, harness version 2, fixed flags, timeout, runtime storage
 bounds, collector limits and supervisor/candidate identities. Nonce labels and host
 staging paths are ownership data and excluded from comparison identity.
 
-Mock reads /SKILL.md through the real Docker read tool, performs a real shell
-conversion, then finishes (three steps). operation=uppercase invokes tr; copy
+Mock reads /SKILL.md through the Docker read tool, performs a shell conversion,
+then finishes (three steps). operation=uppercase invokes tr; copy
 invokes cp. It uses input.txt when available, otherwise the first public input, and
 requires exactly one output path. Default paths are /input/input.txt and
 /output/result.txt. Use this deterministic, unpaid mock to test the tool loop. For real-model
@@ -45,13 +45,11 @@ answers, evaluator, other candidates or Docker socket are mounted. Network is no
 rootfs read-only, capabilities all dropped, no-new-privileges enabled, and CPU,
 memory/swap, PID and /tmp tmpfs byte/inode limits are set. Model keys remain host-side.
 
-Output uses a unique Docker local-driver **tmpfs** volume with type=tmpfs,
+Output uses a unique Docker local-driver tmpfs volume with type=tmpfs,
 device=tmpfs and o=size=<cap>,nr_inodes=<bound>,uid=65534,gid=65534,mode=0770.
-Driver options
-are inspected before use and the mounted filesystem must report tmpfs with the
-supported 4096-byte allocation unit; unsupported storage fails closed before model
-execution. Kernel allocated-byte cap is ceil(max_total_bytes/4096)*4096. This page
-rounding is explicit: a logical limit below one page still permits one allocated
+Before running the model, the sandbox checks the driver options and requires
+the mounted filesystem to report tmpfs with a 4096-byte allocation unit. It rejects
+unsupported storage. Kernel allocated-byte cap is ceil(max_total_bytes/4096)*4096. A logical limit below one page still permits one allocated
 page during execution. Sparse logical lengths are not the kernel allocated-byte
 limit. Collection separately enforces exact logical file/total sizes. Inodes are
 bounded to max_files+1, including the root directory; nested directories consume
@@ -62,6 +60,7 @@ Every candidate tool uses docker exec --user 65534:65534. No tool exposes root e
 and nonroot candidates cannot signal the root supervisor without CAP_KILL. The
 supervisor's daemon-side exit terminates all candidate descendants independently
 of host Python cleanup.
+
 A separate trusted root keeper mounts the same output volume and sleeps for the
 trial timeout plus a fixed 60-second collection grace. While main is stopped, keeper
 keeps the tmpfs mounted so Docker cp can read final artifacts. The keeper is finite
@@ -79,19 +78,18 @@ Returned strings are detached copies; later filesystem writes cannot change them
 
 ## Exact resource journal and recovery
 
-`TrialRunner.resource_recorder` is a callable property, default None. Core installs
-Store.append before execution. BEFORE any staging/volume/container creation, the
+`TrialRunner.resource_recorder` is a callable property, default None. The experiment controller installs
+Store.append before execution. Before creating staging directories, volumes or containers, the
 sandbox emits resource_allocated with resource_id=<UUID hex>, logical trial_id,
 and resources={main,keeper,volume,labels,staging}. Names derive from exactly that
 nonce; labels contain skill-evolver.nonce; staging records exact tempdir path, nonce
 and host UID. Its .owner marker records the nonce. Image inspection creates no resource.
 
 `recover_resources(events)` reduces matched allocations/releases, then recovers only
-unmatched exact records. It validates canonical names/path/UID, nonce labels on
+allocations without matching release records. It validates canonical names/path/UID, nonce labels on
 existing containers/volume and staging marker/ownership before deletion. Containers
 are removed by their inspected immutable IDs, not a prefix search. Unlabelled or
-mismatched resources fail closed. After successful complete cleanup, resource_released
-is emitted with the same resource_id/resources. Lost create responses remain
+mismatched resources fail closed. After cleanup succeeds, the runner emits resource_released with the same resource_id/resources. Lost create responses remain
 recoverable because names and labels were recorded before Docker creation. No
 broad enumeration, unrelated container access, or prefix cleanup is used.
 
@@ -104,7 +102,7 @@ uv tool run --from ruff==0.14.14 ruff check --select F,E9 src/skill_evolver/sand
 uv tool run --from mypy==1.19.1 mypy --check-untyped-defs --ignore-missing-imports src/skill_evolver/sandbox.py src/skill_evolver/runner.py
 ```
 
-The storage tests exercise real Docker storage: at a 4096-byte cap, an 8192-byte
+The storage tests use Docker volumes: at a 4096-byte cap, an 8192-byte
 write fails with at most 4096 bytes allocated to its file; at three available file
 inodes, the fourth empty file fails. After replacing these probe files, stopped-main
 collection still returns stable text while keeper holds the mount.
