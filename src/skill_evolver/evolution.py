@@ -8,7 +8,7 @@ from .budget import Budget, BudgetExceeded
 from .config import fingerprint, public_case, trial_reservation, validate_config, mock_only
 from .evaluator import evaluate
 from .genome import candidate, crossover, digest, mutate, split_skill, validate_skill
-from .store import Store, method_validity, runtime_validity
+from .store import Store, method_validity, runtime_validity, verify_experiment_directory
 from .proposer import proposal_context, search_failures
 
 METHODS = ('original', 'sequential', 'ga')
@@ -29,6 +29,7 @@ def tournament(population, rng):
 class Experiment:
     def __init__(self, config, directory, runner=None, proposal_broker=None):
         validate_config(config)
+        verify_experiment_directory(directory)
         self.config, self.store = config, Store(directory)
         if runner is None:
             from .runner import TrialRunner
@@ -49,6 +50,7 @@ class Experiment:
         return Budget(self.store, f'{method}/{search}/{phase}', self.config['budgets'][phase], rate)
 
     def initialize(self):
+        verify_experiment_directory(self.store.path)
         manifest = self.store.path / 'experiment.json'
         identity = {'config_hash': fingerprint(self.config), 'original_hash': self.original_hash}
         if manifest.exists():

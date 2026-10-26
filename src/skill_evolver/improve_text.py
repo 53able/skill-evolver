@@ -1,0 +1,240 @@
+"""Human-readable terminal text for the improvement workflow (English or Japanese)."""
+import os
+import re
+import shlex
+import unicodedata
+
+
+def japanese():
+    locale = os.environ.get('LC_ALL') or os.environ.get('LC_MESSAGES') or os.environ.get('LANG') or ''
+    return locale.startswith('ja')
+
+
+def _t(en, ja):
+    return ja if japanese() else en
+
+
+def safe(text):
+    """Escape control and format characters so model text cannot hide or rewrite terminal output."""
+    return ''.join(c if c in '\n\t' or unicodedata.category(c) not in ('Cc', 'Cf', 'Zl', 'Zp') else repr(c)[1:-1]
+                   for c in text)
+
+
+STATES = {'preparing': ('preparing', '準備中'), 'draft': ('waiting for your review', '評価案の確認待ち'),
+          'running': ('running', '実行中'), 'incomplete': ('incomplete', '未完了'),
+          'completed': ('completed', '完了'), 'unsupported': ('unsupported skill', '対象外のスキル')}
+
+# Ordered (fragment, English, Japanese); the first fragment found in the error text wins.
+HINTS = [
+    # Companion errors end with a file path, so match their fixed prefix before any other fragment.
+    ('unsupported: compan', 'Companion files must be UTF-8 text or binary inside the skill folder (references/, assets/, '
+     'scripts/ or linked), not hidden, symlinked or hard-linked; at most 32 files, 64 KiB per text file and 128 KiB in total '
+     '(and no more than half of the prompt limit once encoded), and every linked file must exist.',
+     '補助ファイルは、スキルのフォルダ内（references/・assets/・scripts/ またはリンク先）にあり、隠しファイル・シンボリックリンク・'
+     'ハードリンクでないことが必要です。最大32件、テキストは1件64 KiB・合計128 KiB（送信時の形式でプロンプト上限の半分）までで、リンク先は実在する必要があります。'),
+    ('companion snapshot hash differs', 'The saved companion snapshot was modified. Prepare again in a new directory.',
+     '保存済みの補助ファイルのスナップショットが変更されています。新しい出力先で prepare からやり直してください。'),
+    ('cli_not_installed', 'Install the CLI and make sure it is on PATH.',
+     'CLIをインストールし、PATHから実行できるようにしてください。'),
+    ('unsupported_cli_version', 'Tested versions: Claude Code {claude} / Codex {codex}. To try another version, '
+     'run improve prepare again with a new --output and --allow-untested-cli.',
+     '検証済みバージョンは Claude Code {claude}／Codex {codex} です。別バージョンで試す場合は、'
+     '新しい --output を指定し、improve prepare に --allow-untested-cli を付けてください。'),
+    ('unsupported_cli_capability', 'The CLI lacks a required option. Update the CLI or use a tested version.',
+     'CLIに必要なオプションがありません。CLIを更新するか、検証済みバージョンを使ってください。'),
+    ('login_required', 'Log in with your subscription first: run `claude` and /login, or `codex login`. '
+     'API-key logins are not used.',
+     '先にサブスクリプションでログインしてください（`claude` で /login、または `codex login`）。'
+     'APIキーによるログインは使いません。'),
+    ('authentication_required', 'Log in with your subscription first: run `claude` and /login, or `codex login`.',
+     '先にサブスクリプションでログインしてください（`claude` で /login、または `codex login`）。'),
+    ('unresolved_model_alias', 'Pass a full model ID instead of an alias. Codex always needs the ID shown by /model; '
+     'Claude accepts an alias only when the CLI reports the model it selected.',
+     '別名ではなく完全なモデルIDを指定してください。Codexでは常に /model に表示されるIDが必要です。'
+     'Claudeの別名は、CLIが実際のモデル名を返す場合だけ使えます。'),
+    ('separate from the source skill directory', 'Choose an --output outside the folder that contains SKILL.md.',
+     '--output には SKILL.md のあるフォルダの外を指定してください。'),
+    ('does not exist or is a symlink', 'Pass the directory created by improve prepare (shown in its output).',
+     'improve prepare が作成した保存先（prepare の出力に表示）を指定してください。'),
+    ('provider_and_explicit_model_required', 'Pass --provider claude|codex and a model name with --model.',
+     '--provider claude|codex と --model のモデル名を指定してください。'),
+    ('rate_limit', 'The subscription usage limit was reached. Wait, then prepare again in a new directory.',
+     'サブスクリプションの利用上限に達しました。時間をおいて、新しい出力先で prepare からやり直してください。'),
+    ('active writer', 'Another command is using this directory, usually a running improve run. Wait for it to finish.',
+     '別のコマンドがこの保存先を使用中です（通常は実行中の improve run）。終了を待ってください。'),
+    ('three cases per split', 'Keep exactly three development and three held-out cases; replace cases instead of adding.',
+     '改善用・最終確認用の課題は各3件ちょうどにしてください。追加ではなく差し替えで編集します。'),
+    ('evaluation requires three', 'Edit evaluation.json to have 3-12 criteria with at least one required: true, '
+     'run improve report, review it, then run.',
+     'evaluation.json を編集して基準を3〜12件、うち1件以上を required: true にし、improve report で確認してから run してください。'),
+    ('run_deadline', 'The one-hour run limit was reached. Prepare again in a new directory, or try a faster model.',
+     '1回の実行の時間上限（1時間）に達しました。新しい出力先で prepare からやり直すか、より速いモデルを試してください。'),
+    ('bundled file references', 'Relative links must point to files inside the skill folder (URLs and #heading links are fine).',
+     '相対リンクは、スキルのフォルダ内に実在するファイルを指す必要があります（URLと #見出し へのリンクは使えます）。'),
+    ('already exists', 'Choose a new --output directory; each attempt uses its own directory.',
+     '別の --output を指定してください。試行ごとに新しい保存先を使います。'),
+    ('approval hash differs', 'The evaluation changed after you reviewed it. Run improve report and review it again.',
+     '確認後に評価案が変わりました。improve report を実行し、もう一度確認してください。'),
+    ('original skill changed', 'The original SKILL.md or its companion files changed. Run improve prepare again in a new directory.',
+     '元の SKILL.md か補助ファイルが変更されました。新しい出力先で improve prepare からやり直してください。'),
+    ('provider_profile_changed', 'The CLI version or settings differ from prepare. Prepare again in a new directory.',
+     'CLIのバージョンや設定が prepare 時と異なります。新しい出力先で prepare からやり直してください。'),
+    ('timeout', 'A model call exceeded its time limit (task and judging calls were already retried once). '
+     'Prepare again in a new directory, or try a faster model.',
+     'モデル呼び出しが時間上限を超えました（課題の実行と採点は1回再試行済み）。新しい出力先で prepare からやり直すか、'
+     'より速いモデルを試してください。'),
+]
+
+
+WARNINGS = [
+    ('Original source is unavailable or changed', '元のスキルが見つからないか変更されています。run の前に新しく prepare してください。'),
+    ('Editable inputs differ from the approved snapshot', '承認後に入力が編集されています。再実行には新しく prepare が必要です。'),
+    ('comparison.json was saved but completion', '比較結果は保存されましたが完了が記録されていないため、結果は表示しません。'),
+    ('Evaluation is too weak to run',
+     '評価案が弱すぎるため実行できません。基準は3〜12件、うち1件以上が必須である必要があります。'
+     'evaluation.json を編集し、improve report を実行してください。'),
+    ('Model identity is pinned by the explicit selector only',
+     'モデルは指定した名前でのみ固定しています。実際に使われたモデルはCLIから確認できません。'),
+]
+
+
+def warning(text):
+    if not japanese():
+        return text
+    untested = re.match(r'CLI version (\S+) is untested', text)
+    if untested:
+        return 'CLIバージョン {} は未検証です（--allow-untested-cli で許可）。'.format(untested.group(1))
+    if text.startswith('Mentioned files not found'):
+        return '本文に書かれているが見つからないファイル（モデルには渡していません）: ' + text.split(': ', 1)[1]
+    return next((ja for prefix, ja in WARNINGS if ja and text.startswith(prefix)), text)
+
+
+def hint(error):
+    from .cli_provider import SUPPORTED
+    text = str(error)
+    for fragment, en, ja in HINTS:
+        if fragment in text:
+            return _t(en, ja).format(**SUPPORTED)
+    return None
+
+
+def progress(number, limit, identity):
+    return _t('  model call {} (limit {}): {}', '  モデル呼び出し {}回目（上限{}回）: {}').format(number, limit, identity)
+
+
+def cancelled():
+    return _t('Cancelled; nothing was run.', '中止しました。何も実行していません。')
+
+
+def approval_header(summary, bundle, approval):
+    profile = bundle['provider_profile']
+    lines = ['', 'CLI: {} {} / {}'.format(profile['provider'], profile['cli_version'], profile['model']),
+             _t('Skill: ', '対象スキル: ') + bundle['source_path'],
+             _t('Approval SHA256: ', '承認ハッシュ: ') + approval]
+    lines += [_t('Warning: ', '注意: ') + warning(item) for item in summary['warnings']]
+    return '\n'.join(lines)
+
+
+def confirm_prompt(summary, limits):
+    return _t('Run the improvement with this evaluation? Up to {} more model calls and {} minutes. [y/N] ',
+              'この評価案で改善を実行しますか？ モデル呼び出しは残り最大{}回、最大{}分かかります。 [y/N] ').format(
+        limits['max_calls'] - summary['calls_started'], limits['run_deadline'] // 60)
+
+
+def _passed(rows):
+    checks = [item['passed'] for row in rows for item in row['criteria']]
+    return sum(checks), len(checks)
+
+
+def _required_failures(rows, required):
+    return {(row['case_id'], item['id']) for row in rows for item in row['criteria']
+            if item['id'] in required and not item['passed']}
+
+
+def _scores(summary):
+    """Criteria passed per split, plus why a higher count may still not be an improvement."""
+    comparison = summary['comparison']
+    if 'original_heldout' not in comparison:
+        return []
+    dev = [_passed(comparison[k]) for k in ('baseline_development', 'best_development')]
+    held = [_passed(comparison[k]) for k in ('original_heldout', 'best_heldout')]
+    harder = _t('  Prepare again in a new directory and make the cases or criteria harder in evaluation.json '
+                'before run (see "What to check in the evaluation" in the README).',
+                '  新しい保存先で prepare し、run の前に evaluation.json の課題や基準を難しくしてください'
+                '（README の「評価案で確認すること」を参照）。')
+    if not summary.get('revision_selected'):
+        if dev[0][0] == dev[0][1]:
+            return [_t('  Development: original {}/{}', '  改善用の課題: 元 {}/{}').format(*dev[0]),
+                    _t('  Held-out:    original {}/{}', '  最終確認用:   元 {}/{}').format(*held[0]),
+                    _t('  The original already passes every development check, so revisions were skipped.',
+                       '  元のスキルが改善用の基準をすべて満たしていたため、改訂は省略しました。'), harder]
+        return [_t('  Development: original {}/{}; no revision scored higher',
+                   '  改善用の課題: 元 {}/{}。これを上回る改訂案はありませんでした').format(*dev[0]),
+                _t('  Held-out:    original {}/{}', '  最終確認用:   元 {}/{}').format(*held[0])]
+    lines = [_t('  Development: original {}/{} -> best revision {}/{}',
+                '  改善用の課題: 元 {}/{} → 最良の改訂案 {}/{}').format(*dev[0], *dev[1]),
+             _t('  Held-out:    original {}/{} -> best revision {}/{}',
+                '  最終確認用:   元 {}/{} → 最良の改訂案 {}/{}').format(*held[0], *held[1])]
+    required = set(summary.get('required_criteria', ()))
+    new = sorted(_required_failures(comparison['best_heldout'], required)
+                 - _required_failures(comparison['original_heldout'], required))
+    if new:
+        lines.append(_t('  Not an improvement: the revision newly fails required checks: ',
+                        '  改善とみなさない理由: 改訂案が必須基準で新たに不合格: ')
+                     + ', '.join(case + '/' + criterion for case, criterion in new))
+    elif held[0][0] == held[0][1]:
+        lines += [_t('  The original already passes every held-out check, so this evaluation cannot show '
+                     'an improvement.', '  元のスキルが最終確認用の基準をすべて満たしているため、この評価では改善を示せません。'),
+                  harder]
+    return lines
+
+
+def render(summary):
+    command = 'skill-evolver improve'
+    directory = shlex.quote(summary['directory'])
+    state = summary.get('state')
+    label = STATES.get(state, (str(state), str(state)))
+    lines = [_t('State: ', '状態: ') + _t(*label)]
+    if 'provider' in summary:
+        lines.append('CLI: {} {} / {}'.format(summary['provider'], summary['cli_version'], summary['model']))
+    if summary.get('reason'):
+        lines.append(_t('Reason: ', '理由: ') + summary['reason'])
+        # An unsupported reason is model prose, not a stable code.
+        advice = hint(summary['reason']) if state != 'unsupported' else None
+        if advice:
+            lines.append(_t('Hint: ', 'ヒント: ') + advice)
+    lines.append('')
+    if state == 'draft':
+        lines += [_t('Next steps:', '次の手順:'),
+                  _t('  1. Read the evaluation: ', '  1. 評価案を読む: ') + summary['evaluation'],
+                  _t('     To change it, edit evaluation.json, then run: ',
+                     '     変更する場合は evaluation.json を編集してから実行: ')
+                  + command + ' report ' + directory,
+                  _t('  2. Start the improvement: ', '  2. 改善を実行: ') + command + ' run ' + directory]
+    elif state == 'completed':
+        comparison = summary.get('comparison', {})
+        improved = comparison.get('status') == 'observed_improvement'
+        report_path = os.path.join(summary['directory'], 'comparison.md')
+        lines += [_t('Result: ', '結果: ') + (_t('improvement observed on the reviewed evaluation',
+                                                 '確認した評価で改善を観測しました') if improved else
+                                              _t('no improvement observed; the original skill was not changed',
+                                                 '改善は確認できませんでした。元のスキルは変更していません'))]
+        lines += _scores(summary)
+        lines.append(_t('Comparison report: ', '比較レポート: ') + report_path)
+        if improved:
+            source = shlex.quote(summary['source_path'])
+            candidate = shlex.quote(summary['candidate_path'])
+            lines += [_t('Improved skill: ', '改善版のスキル: ') + summary['candidate_path'],
+                      '', _t('The original skill was not changed. To adopt the candidate:',
+                             '元のスキルは変更していません。採用する場合:'),
+                      '  diff -u ' + source + ' ' + candidate,
+                      '  cp ' + source + ' ' + source + '.bak-$(date +%Y%m%d-%H%M%S)',
+                      '  cp ' + candidate + ' ' + source]
+    elif state == 'unsupported':
+        lines.append(_t('This skill needs scripts or tools to be run, which is not supported. Choose a skill whose responses can be judged as text.', 'このスキルはスクリプトやツールの実行が必要なため対象外です。応答をテキストとして評価できるスキルを選んでください。'))
+    else:
+        lines.append(_t('An interrupted or failed run is not resumed. Start improve prepare again in a new --output directory.',
+                        '中断・失敗した実行は再開しません。新しい --output を指定して improve prepare からやり直してください。'))
+    if summary.get('warnings'):
+        lines += ['', _t('Warnings:', '注意:')] + ['  - ' + warning(item) for item in summary['warnings']]
+    return '\n'.join(lines)

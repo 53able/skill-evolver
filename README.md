@@ -4,9 +4,87 @@
 
 Language: English | [日本語](docs/ja-JP/README.md)
 
+Improve the `SKILL.md` of a skill that answers in text, using your existing Claude Code or Codex login. Companion files such as references and templates are used read-only. The tool creates an evaluation for you to review, tries up to three purpose-preserving revisions, and saves a candidate plus a comparison report. It uses Python 3.11+ and the standard library. This workflow does not require Docker or a separate API key.
+
+## Getting started
+
+Setup takes about five minutes. An improvement run takes from a few minutes up to one hour, depending on the model.
+
+### 1. Install and log in
+
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then install this repository.
+
+```sh
+uv tool install /path/to/skill-evolver   # path to this repository; add --reinstall after updating it
+skill-evolver --help                     # if not found, run uv tool update-shell and open a new shell
+```
+
+Log in to `claude` or `codex` with your subscription as usual. No API key is needed.
+
+### 2. Easiest: ask your agent
+
+Copy the bundled skill to use the tool from a Claude Code or Codex conversation.
+
+```sh
+mkdir -p ~/.claude/skills && cp -R /path/to/skill-evolver/skills/improve-skill ~/.claude/skills/   # Claude Code
+mkdir -p ~/.codex/skills && cp -R /path/to/skill-evolver/skills/improve-skill ~/.codex/skills/     # Codex
+```
+
+In a new conversation, ask: "Improve `~/.claude/skills/my-skill/SKILL.md` with improve-skill." (In Codex you can also type `$improve-skill`.) The agent prepares an evaluation, summarizes it, runs the improvement **only after you approve**, and shows you the resulting diff. Your original skill is not changed unless you say you want to adopt the candidate.
+
+In Codex's default sandbox, the `codex`/`claude` processes this tool starts cannot reach the network. When the agent asks to run outside the sandbox, review the request and allow it.
+
+### 3. Run it yourself (two commands)
+
+```sh
+# Create the evaluation (one model call, usually under two minutes)
+skill-evolver improve prepare ~/.claude/skills/my-skill/SKILL.md \
+  --provider claude --model sonnet --output ~/skill-evolver-runs/my-skill-$(date +%Y%m%d-%H%M%S)
+
+# Show the evaluation; answer y to run (use the directory printed above)
+skill-evolver improve run ~/skill-evolver-runs/my-skill-20261025-120000
+```
+
+Keep the terminal open while `run` works; an interrupted run cannot be resumed. Each command prints the current state and the next command to type. When the run completes, it prints the per-split scores and the comparison report (`comparison.md`). If an improvement was observed, it also prints the improved skill (`candidate/SKILL.md`) and the `diff`/`cp` commands to adopt it. For Codex, pass `--provider codex --model <full model ID shown by /model in codex>`. The chosen model writes the evaluation, runs the tasks, proposes revisions and judges the results.
+
+### What to check in the evaluation
+
+Read `evaluation.md` before approving. The evaluation decides what counts as better.
+
+- Do the tasks look like real uses of the skill?
+- Are the required criteria the ones that matter, neither too lax nor impossible?
+- Would the current skill already pass everything? Then no improvement can be shown. Make it harder by replacing one task with a request where the skill actually fell short, or by adding an observed failure as a required criterion.
+- Are the held-out tasks different in substance from the development tasks?
+
+To change it, edit `evaluation.json` and run `skill-evolver improve report <directory>` before `run` (`evaluation.md` is a generated preview; editing it has no effect). Keep exactly three development and three held-out tasks (replace, do not add), unique `id`/`group_id` values, and 3-12 criteria with at least one marked required (`run` refuses weaker evaluations).
+
+## Details
+
+**How it works:** From your skill, the tool drafts the purpose, constraints to keep, pass/fail criteria, and two task sets (development and held-out, three each). It tries up to three revisions on the development tasks, then compares the best candidate with the original on the held-out tasks.
+
+**Reading results:** `observed_improvement` (improvement observed on the reviewed evaluation), `no_observed_improvement`, or `incomplete`. Improvement is reported only when the held-out score rises with no new failures on required criteria. With three tasks per split, written and judged by a model, a single extra pass counts; this is not proof of general or statistical superiority.
+
+**CLI versions:** Claude Code 2.1.310 and Codex 0.164.0 are tested; other versions stop. To try one anyway, add `--allow-untested-cli` to `prepare`. Required-option and subscription-login checks still apply, and the report marks the version as untested. If the CLI updates between `prepare` and the end of `run`, that run ends incomplete, so avoid updating it meanwhile. Claude aliases such as `sonnet` are pinned to the model the CLI reports; if it reports none, the run stops, so pass a full model ID.
+
+**What approval freezes:** answering `y` to `run` freezes the purpose, evaluation, model selector, CLI version and invocation settings. A changed input requires a new preparation in a new directory. Re-running a completed directory does not repeat model calls. A task execution or judging call that times out is retried once, since it changes nothing; other failed, interrupted or uncertain calls are not retried. For scripts, add `--json` and pass `approval_hash` from `improve report --json` to `run --approve-evaluation`. Exit codes: 0 success, 1 error, cancel or unsupported skill, 2 incomplete.
+
+**Scope:** a `SKILL.md` of up to 64 KiB whose responses can be judged as text. Only the quality of output produced by the body's instructions is improved; the frontmatter (`name`/`description`) and whether the skill gets triggered are neither changed nor evaluated.
+
+**Companion files:** files under `references/`, `assets/` and `scripts/`, plus files the body mentions or links to, are frozen at prepare as a read-only snapshot and given to evaluation drafting, task execution, judging and revision. Companion files are never revised, and candidates may refer only to existing ones. `scripts/` are passed as text and **never executed**; skills whose purpose requires running scripts or tools are unsupported. Companion files must be UTF-8 text, not symlinks, at most 32 files, 64 KiB each and 128 KiB in total. A missing referenced file, or a companion file changed after prepare, stops the workflow. Words inside longer paths such as `app/assets/x` are not treated as companion files.
+
+**Limits and typical use:** a measured run with `haiku` and a small skill used 43 calls in about five minutes. If the original passes every development check, revisions are skipped to save calls. A directory left by a failed `prepare` cannot be reused and can be deleted. The limits are three revisions, 60 model calls (including the one for prepare), 120 seconds per call, one hour per run, 256 KiB per prompt, 1 MiB each for the CLI's stdout and stderr. CLI-reported usage is recorded when available; unknown usage and costs remain unknown. These limits do not guarantee an exact token, invoice or subscription-quota ceiling. Usage of a call that timed out is not observed, even if the provider kept generating.
+
+**Execution boundary:** the invocation profiles restrict model shell/MCP/web/write actions and reject unexpected tool events. Managed policy hooks, CLI authentication/internal-state updates and complete host-read isolation are outside that boundary. The tool uses your CLI's existing login, removes API-key and endpoint variables from the child environment, and never copies or reads authentication files itself. It does not modify your CLI settings.
+
+**Running without installing:** from the repository root, replace `skill-evolver` with `PYTHONPATH=src uv run --locked python -m skill_evolver`.
+
+## Controlled experiments (research, advanced)
+
+You do not need this section to improve a skill. It describes a separate Docker-based tool for comparing improvement methods.
+
 Compare GA, sequential improvement and the original skill in isolated Docker trials with fixed budgets. The CLI uses Python 3.11+ and the standard library. Start with the bundled mock fixture to verify the workflow; use real models and held-out cases to measure skill improvement.
 
-## Quick start
+## Experiment quick start
 
 Run Python through uv. From the repository, sync the locked environment and use `PYTHONPATH=src uv run --locked python -m skill_evolver`:
 

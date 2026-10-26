@@ -1,5 +1,7 @@
 """Body-only mutations with immutable metadata and local references."""
 import hashlib
+from pathlib import Path
+import posixpath
 import re
 
 
@@ -17,7 +19,25 @@ def split_skill(text):
     return metadata, text[match.end():]
 
 
-def validate_skill(text, original, root):
+def _link_targets(body):
+    definitions = dict(re.findall(r'^\[([^]]+)\]:\s*(\S+)', body, re.M))
+    targets = re.findall(r'\[[^]]*\]\(([^)]+)\)', body) + list(definitions.values())
+    return [target.split()[0].strip('<>') for target in targets if target.split()]
+
+
+def local_targets(body):
+    """Relative file paths linked from a body, without anchors or a leading ./."""
+    paths = set()
+    for target in _link_targets(body):
+        if target.startswith('#') or '://' in target or target.startswith('mailto:'):
+            continue
+        path = target.split('#')[0]
+        paths.add(path[2:] if path.startswith('./') else path)
+    return paths
+
+
+def validate_skill(text, original, root, files=None):
+    """files: frozen companion snapshot whose paths may be linked; None keeps links URL/anchor-only."""
     metadata, body = split_skill(text)
     if metadata != split_skill(original)[0]:
         raise ValueError('frontmatter is immutable')
@@ -37,7 +57,14 @@ def validate_skill(text, original, root):
             if target[1:] not in anchors:
                 raise ValueError('broken anchor: ' + target)
         elif '://' not in target and not target.startswith('mailto:'):
-            raise ValueError('bundled file references unsupported until runner snapshot/staging is implemented: ' + target)
+            path = posixpath.normpath(target.split('#')[0])
+            # With a companion snapshot, links may point to its files or to folders inside the skill.
+            if files is not None and (path in files or (not path.startswith('..')
+                                                         and (Path(root) / path).is_dir())):
+                continue
+            if files is None:
+                raise ValueError('bundled file references unsupported until runner snapshot/staging is implemented: ' + target)
+            raise ValueError('bundled file references must point to files inside the skill folder: ' + target)
     return text
 
 
