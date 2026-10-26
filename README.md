@@ -10,6 +10,8 @@ Improve the `SKILL.md` of a skill that answers in text, using your existing Clau
 
 Setup takes about five minutes. An improvement run takes from a few minutes up to one hour, depending on the model.
 
+For the shortest path through one improvement, see the [quick guide](docs/quick-guide.md).
+
 ### 1. Install and log in
 
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then install this repository.
