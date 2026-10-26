@@ -13,6 +13,7 @@ from .cli_provider import CLIProvider, ProviderError, load_json
 from .genome import candidate, digest, validate_skill
 from .store import Store
 from . import improve_eval as ev
+from . import improve_files
 
 
 KIND = 'skill-improvement'
@@ -112,11 +113,19 @@ def load_bundle(directory):
     if not isinstance(profile, dict) or profile.get('provider') not in ('claude', 'codex'):
         raise ValueError('invalid provider profile')
     evaluation = ev.validate_evaluation(_read(directory / 'evaluation.json'))
+    companions = {}
+    if 'companions_hash' in manifest:
+        companions = improve_files.validate_files(_read(directory / 'companions.json'))
+        if fingerprint(companions) != manifest['companions_hash']:
+            raise ValueError('companion snapshot hash differs')
     bundle = {'kind': KIND, 'schema_version': SCHEMA_VERSION,
               'source_path': manifest['source_path'], 'original_hash': manifest['original_hash'],
               'original': original, 'evaluation': evaluation, 'provider_profile': profile,
               'reported_model': manifest.get('reported_model'),
               'model_identity': manifest.get('model_identity'), 'limits': limits}
+    if companions:
+        # Added only when present so bundles without companions keep their approval hash.
+        bundle['companions'] = companions
     return manifest, bundle
 
 
@@ -127,6 +136,13 @@ def verify_original(bundle):
         raise ValueError('original skill is no longer available') from exc
     if hashlib.sha256(current).hexdigest() != bundle['original_hash']:
         raise ValueError('original skill changed; start a new prepare')
+    if bundle.get('companions'):
+        try:
+            files = improve_files.snapshot(Path(bundle['source_path']).parent, bundle['original']['text'])[0]
+        except (ValueError, OSError) as exc:
+            raise ValueError('original skill changed (companion files); start a new prepare') from exc
+        if files != bundle['companions']:
+            raise ValueError('original skill changed (companion files); start a new prepare')
 
 
 def _save_candidate(store, text, original, *, operation, reason=None):
@@ -198,9 +214,10 @@ def prepare(skill, provider_name, model, output, *, provider=None, allow_unteste
     text = source.read_bytes().decode('utf-8')
     if len(text.encode()) > SKILL_BYTES:
         raise ValueError('M1 supports skill files up to 64 KiB')
-    validate_skill(text, text, source.parent)
-    if re.search(r'\b(?:scripts|references|assets)/[^\s`)>]+', text):
-        raise ValueError('unsupported: companion files require a separate execution scope')
+    files, missing = improve_files.snapshot(source.parent, text)
+    validate_skill(text, text, source.parent, files=files)
+    if _encoded_size(files) > DEFAULT_LIMITS['prompt_bytes'] // 2:
+        raise ValueError('unsupported: companion files exceed half of the prompt limit')
     directory = Path(output).absolute()
     resolved = directory.resolve()
     if resolved == source.parent or resolved.is_relative_to(source.parent) or source.is_relative_to(resolved):
@@ -215,12 +232,19 @@ def prepare(skill, provider_name, model, output, *, provider=None, allow_unteste
         manifest = {'kind': KIND, 'schema_version': SCHEMA_VERSION, 'source_path': str(source),
                     'original_hash': digest(text), 'provider_profile': profile,
                     'limits': copy.deepcopy(DEFAULT_LIMITS), 'state': 'preparing'}
+        if files:
+            store.write('companions.json', files)
+            manifest['companions_hash'] = fingerprint(files)
+        if missing:
+            # Mentioned but absent paths (often outputs the skill creates); reported, not sent.
+            manifest['missing_companions'] = missing
         store.write('manifest.json', manifest)
         try:
             store.write('original.json', candidate(text))
             calls = Calls(store, provider, manifest['limits'], progress=progress)
-            evaluation = ev.validate_evaluation(calls.complete('prepare/evaluation', ev.evaluation_context(text), ev.EVALUATION_SCHEMA))
-            if hashlib.sha256(source.read_bytes()).hexdigest() != manifest['original_hash']:
+            evaluation = ev.validate_evaluation(calls.complete('prepare/evaluation', ev.evaluation_context(text, files), ev.EVALUATION_SCHEMA))
+            if (hashlib.sha256(source.read_bytes()).hexdigest() != manifest['original_hash']
+                    or (files and improve_files.snapshot(source.parent, text)[0] != files)):
                 raise ValueError('original skill changed during prepare')
             store.write('evaluation.json', evaluation)
             manifest.update(state='draft' if evaluation['execution_scope'] == 'text_only' else 'unsupported',
@@ -234,12 +258,28 @@ def prepare(skill, provider_name, model, output, *, provider=None, allow_unteste
     return report(directory)
 
 
-def _prompts_fit(evaluation, original, proposed, limit):
+def _encoded_size(context):
+    # Mirrors CLIProvider.complete encoding.
+    return len(json.dumps(context, ensure_ascii=False, separators=(',', ':')).replace('$', '\\u0024').encode())
+
+
+def _observations(evaluation, current, rows, limit, files):
+    """Shorten development outputs only when the proposal prompt would exceed the limit."""
+    for size in (None, 4000, 0):
+        trimmed = rows if size is None else [
+            {**row, 'output': row['output'][:size] + ('…[truncated]' if len(row['output']) > size else '')}
+            for row in rows]
+        if _encoded_size(ev.proposal_context(evaluation, current, trimmed, files)) <= limit:
+            return trimmed
+    return trimmed
+
+
+def _prompts_fit(evaluation, original, proposed, limit, files=None):
     # Mirrors CLIProvider.complete encoding so an oversized candidate is rejected before a call is recorded.
-    contexts = [ev.purpose_context(evaluation, original, proposed), ev.proposal_context(evaluation, proposed, [])]
-    contexts += [ev.execution_context(evaluation, proposed, case) for case in evaluation['development'] + evaluation['heldout']]
-    return all(len(json.dumps(c, ensure_ascii=False, separators=(',', ':')).replace('$', '\\u0024').encode()) <= limit
-               for c in contexts)
+    contexts = [ev.purpose_context(evaluation, original, proposed, files), ev.proposal_context(evaluation, proposed, [], files)]
+    contexts += [ev.execution_context(evaluation, proposed, case, files)
+                 for case in evaluation['development'] + evaluation['heldout']]
+    return all(_encoded_size(c) <= limit for c in contexts)
 
 
 def _read_only(calls, identity, context, schema):
@@ -256,18 +296,18 @@ def _read_only(calls, identity, context, schema):
     return calls.complete(identity + '/retry', context, schema)
 
 
-def _trial(calls, evaluation, skill, case, identity):
+def _trial(calls, evaluation, skill, case, identity, files):
     response = ev.validate_response(_read_only(calls, identity + '/execute',
-        ev.execution_context(evaluation, skill, case), ev.OUTPUT_SCHEMA), 'output')
+        ev.execution_context(evaluation, skill, case, files), ev.OUTPUT_SCHEMA), 'output')
     judgment = ev.validate_response(_read_only(calls, identity + '/judge',
-        ev.judgment_context(evaluation, case, response['output']), ev.JUDGMENT_SCHEMA), 'judgment', evaluation)
+        ev.judgment_context(evaluation, case, response['output'], files), ev.JUDGMENT_SCHEMA), 'judgment', evaluation)
     row = {'case_id': case['id'], 'output': response['output'], 'criteria': judgment['criteria']}
     calls.store.append({'kind': 'trial', 'trial_id': identity, **row})
     return row
 
 
-def _score(calls, evaluation, skill, split, identity):
-    return [_trial(calls, evaluation, skill, case, identity + '/' + case['id'])
+def _score(calls, evaluation, skill, split, identity, files):
+    return [_trial(calls, evaluation, skill, case, identity + '/' + case['id'], files)
             for case in evaluation[split]]
 
 
@@ -317,10 +357,11 @@ def run(directory, approval, *, provider=None, progress=None):
         store.write('manifest.json', manifest)
         original = bundle['original']['text']
         evaluation = bundle['evaluation']
+        files = bundle.get('companions', {})
         try:
             best = _save_candidate(store, original, original, operation='original')
             store.append({'kind': 'approved', 'bundle_hash': approval})
-            baseline_dev = _score(calls, evaluation, original, 'development', 'development/original')
+            baseline_dev = _score(calls, evaluation, original, 'development', 'development/original', files)
             best_dev = baseline_dev
             iterations = bundle['limits']['max_iterations']
             if ev.score(baseline_dev, evaluation)[0] == sum(len(row['criteria']) for row in baseline_dev):
@@ -330,16 +371,17 @@ def run(directory, approval, *, provider=None, progress=None):
             for iteration in range(1, iterations + 1):
                 prefix = 'iteration/' + str(iteration)
                 content = calls.complete(prefix + '/proposal',
-                    ev.proposal_context(evaluation, best['text'], best_dev), ev.PROPOSAL_SCHEMA)
+                    ev.proposal_context(evaluation, best['text'], _observations(
+                        evaluation, best['text'], best_dev, bundle['limits']['prompt_bytes'], files), files),
+                    ev.PROPOSAL_SCHEMA)
                 proposed = content.get('skill_text') if isinstance(content, dict) else None
                 try:
                     ev.validate_response(content, 'proposal')
                     if len(proposed.encode()) > SKILL_BYTES:
                         raise ValueError('candidate exceeds 64 KiB')
-                    validate_skill(proposed, original, Path(bundle['source_path']).parent)
-                    if re.search(r'\b(?:scripts|references|assets)/[^\s`)>]+', proposed):
-                        raise ValueError('companion files')
-                    if not _prompts_fit(evaluation, original, proposed, bundle['limits']['prompt_bytes']):
+                    validate_skill(proposed, original, Path(bundle['source_path']).parent, files=files)
+                    improve_files.check_references(proposed, files, original)
+                    if not _prompts_fit(evaluation, original, proposed, bundle['limits']['prompt_bytes'], files):
                         raise ValueError('candidate prompts exceed the prompt limit')
                 except ValueError:
                     if isinstance(proposed, str):
@@ -348,21 +390,21 @@ def run(directory, approval, *, provider=None, progress=None):
                     continue
                 record = _save_candidate(store, proposed, original, operation='revision')
                 purpose = ev.validate_response(calls.complete(prefix + '/purpose',
-                    ev.purpose_context(evaluation, original, proposed), ev.PURPOSE_SCHEMA), 'purpose')
+                    ev.purpose_context(evaluation, original, proposed, files), ev.PURPOSE_SCHEMA), 'purpose')
                 store.append({'kind': 'purpose_check', 'iteration': iteration, 'candidate_id': record['id'], **purpose})
                 if not purpose['preserved']:
                     store.append({'kind': 'candidate_rejected', 'iteration': iteration, 'reason': 'purpose_changed'})
                     continue
-                rows = _score(calls, evaluation, proposed, 'development', prefix + '/development')
+                rows = _score(calls, evaluation, proposed, 'development', prefix + '/development', files)
                 selected = ev.better(rows, best_dev, evaluation)
                 store.append({'kind': 'candidate_selection', 'iteration': iteration, 'candidate_id': record['id'],
                               'selected': selected})
                 if selected:
                     best, best_dev = record, rows
             store.append({'kind': 'best_frozen', 'candidate_id': best['id']})
-            original_final = _score(calls, evaluation, original, 'heldout', 'heldout/original')
+            original_final = _score(calls, evaluation, original, 'heldout', 'heldout/original', files)
             best_final = (original_final if best['id'] == digest(original) else
-                          _score(calls, evaluation, best['text'], 'heldout', 'heldout/best'))
+                          _score(calls, evaluation, best['text'], 'heldout', 'heldout/best', files))
             improved = best['id'] != digest(original) and ev.better(best_final, original_final, evaluation)
             recommended = best if improved else candidate(original)
             comparison = {'kind': KIND, 'schema_version': SCHEMA_VERSION, 'complete': True,

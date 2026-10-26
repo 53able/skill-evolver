@@ -66,7 +66,7 @@ if 'skill' in context and 'Prepare an evaluation' in context['task']:
     result = json.loads(os.environ['FAKE_EVAL'])
 elif 'current_skill' in context:
     if os.environ.get('FAKE_PROPOSAL_TIMEOUT'): time.sleep(10)
-    result = {'skill_text': context['current_skill']+'\nIMPROVED\n'}
+    result = {'skill_text': context['current_skill']+'\nIMPROVED\n'+os.environ.get('FAKE_PROPOSAL_EXTRA','')}
 elif 'proposed_skill' in context:
     result = {'preserved': mode != 'purpose', 'reason': 'The writing purpose is unchanged'}
 elif 'output' in context:

@@ -123,7 +123,7 @@ def improve(args):
         if args.json or not (sys.stdin.isatty() and sys.stdout.isatty()):
             raise ValueError('approval required: run improve run in a terminal to confirm, '
                              'or pass --approve-evaluation with approval_hash from improve report --json')
-        print(safe(evaluation_markdown(bundle['evaluation'], approval)))
+        print(safe(evaluation_markdown(bundle['evaluation'], approval, bundle.get('companions'))))
         print(safe(approval_header(summary, bundle, approval)))
         try:
             answer = input(confirm_prompt(summary, bundle['limits']))

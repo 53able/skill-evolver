@@ -1,0 +1,161 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 1344" width="960" height="1344" role="img" aria-labelledby="title desc" font-family="'Hiragino Sans','Noto Sans JP','Yu Gothic',sans-serif">
+  <title id="title">skill-evolver でスキルを改善する流れ</title>
+  <desc id="desc">あなたが改善したい SKILL.md を選ぶと、skill-evolver が評価案（目的・制約・合否基準・改善用3件と最終確認用3件の課題）を作る。あなたは評価案を読み、必要なら evaluation.json を直してから承認する。基準が3件未満か必須の基準がない評価案は承認できない。承認後、ツールは元のスキルを改善用の課題で採点し、元が全基準に合格していれば改訂を省略する。そうでなければ改訂案を作り、目的を保つか確認して採点し、合格数が上回り必須の新たな不合格がなければ最良案を更新する。これを最大3回くり返す。最後に最終確認用の課題で元と最良案を比べ、結果は「改善を観測」「改善なし」「未完了」に分かれる。改善を観測した場合だけ、あなたが diff を見て採用するかを決める。元の SKILL.md はツールが書き換えない。補助ファイルやツール実行が必要なスキルは prepare の時点で対象外として止まる。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#334155"/>
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="480" y="36" text-anchor="middle" font-size="22" font-weight="700" fill="#0F172A">skill-evolver でスキルを改善する流れ</text>
+  <text x="480" y="62" text-anchor="middle" font-size="13" fill="#334155">あなたが決めるのは「対象」「評価案の承認」「採用」の3つ。残りはツールが Claude／Codex CLI を呼んで進める</text>
+
+  <!-- Swimlanes -->
+  <g id="lane-you">
+    <rect x="20" y="80" width="310" height="1170" fill="#FFFBF5" stroke="#CBD5E1"/>
+    <rect x="20" y="80" width="310" height="36" fill="#FDE9CF" stroke="#CBD5E1"/>
+    <text x="175" y="104" text-anchor="middle" font-size="15" font-weight="700" fill="#7C2D12">あなた</text>
+  </g>
+  <g id="lane-tool">
+    <rect x="330" y="80" width="610" height="1170" fill="#F7FAFE" stroke="#CBD5E1"/>
+    <rect x="330" y="80" width="610" height="36" fill="#DCE9F8" stroke="#CBD5E1"/>
+    <text x="635" y="104" text-anchor="middle" font-size="15" font-weight="700" fill="#1E3A8A">skill-evolver（Claude／Codex CLI を呼ぶ）</text>
+  </g>
+
+  <!-- a1 -->
+  <g id="a1">
+    <rect x="40" y="135" width="270" height="64" rx="10" fill="#FFF3E0" stroke="#B45309" stroke-width="1.5"/>
+    <text x="175" y="162" text-anchor="middle" font-size="14" font-weight="700" fill="#0F172A">1. 改善したい SKILL.md を選ぶ</text>
+    <text x="175" y="184" text-anchor="middle" font-size="12" fill="#334155">使う CLI とモデルも決める</text>
+  </g>
+
+  <!-- a1 -> t2 -->
+  <path d="M310 167 H640 V211" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="470" y="158" text-anchor="middle" font-size="12" fill="#334155">指定する</text>
+
+  <!-- t2 -->
+  <g id="t2">
+    <rect x="420" y="215" width="440" height="110" rx="10" fill="#E8F1FB" stroke="#1D4ED8" stroke-width="1.5"/>
+    <text x="640" y="243" text-anchor="middle" font-size="14" font-weight="700" fill="#0F172A">2. prepare：評価案を作る</text>
+    <text x="640" y="268" text-anchor="middle" font-size="12" fill="#334155">目的・維持する制約・合否基準</text>
+    <text x="640" y="290" text-anchor="middle" font-size="12" fill="#334155">改善用の課題3件 ＋ 最終確認用の課題3件</text>
+    <text x="640" y="312" text-anchor="middle" font-size="12" fill="#334155">モデル呼び出し1回（通常2分以内）</text>
+  </g>
+
+  <!-- t2 -> a3 -->
+  <path d="M420 300 H175 V351" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="372" y="292" text-anchor="middle" font-size="12" fill="#334155">評価案を渡す</text>
+
+  <!-- a3 -->
+  <g id="a3">
+    <rect x="40" y="355" width="270" height="90" rx="10" fill="#FFF3E0" stroke="#B45309" stroke-width="1.5"/>
+    <text x="175" y="384" text-anchor="middle" font-size="14" font-weight="700" fill="#0F172A">3. 評価案を読み、承認する</text>
+    <text x="175" y="408" text-anchor="middle" font-size="12" fill="#334155">evaluation.md で課題と基準を確認</text>
+    <text x="175" y="428" text-anchor="middle" font-size="12" fill="#334155">run の確認に y と答える</text>
+  </g>
+
+  <!-- a3 edit loop -->
+  <path d="M90 445 V482 H150 V449" fill="none" stroke="#64748B" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+  <text x="175" y="502" text-anchor="middle" font-size="12" fill="#334155">直す場合：evaluation.json を編集</text>
+  <text x="175" y="520" text-anchor="middle" font-size="12" fill="#334155">→ report で表示を更新</text>
+
+  <!-- n_weak -->
+  <g id="n_weak">
+    <rect x="420" y="342" width="440" height="66" rx="6" fill="#FFFFFF" stroke="#64748B" stroke-width="1.3" stroke-dasharray="5 4"/>
+    <text x="640" y="366" text-anchor="middle" font-size="12.5" font-weight="700" fill="#0F172A">承認できない評価案</text>
+    <text x="640" y="388" text-anchor="middle" font-size="12" fill="#334155">基準が3件未満、または必須の基準がない → 直すまで run が拒否</text>
+  </g>
+
+  <!-- a3 -> t4 -->
+  <path d="M310 430 H640 V541" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="372" y="422" text-anchor="middle" font-size="12" font-weight="700" fill="#7C2D12">y で承認</text>
+
+  <!-- t4 -->
+  <g id="t4">
+    <rect x="450" y="545" width="380" height="64" rx="10" fill="#E8F1FB" stroke="#1D4ED8" stroke-width="1.5"/>
+    <text x="640" y="572" text-anchor="middle" font-size="14" font-weight="700" fill="#0F172A">4. run：元のスキルを改善用3件で採点</text>
+    <text x="640" y="594" text-anchor="middle" font-size="12" fill="#334155">課題を実行し、基準ごとに合否を判定</text>
+  </g>
+
+  <!-- t4 -> d5 -->
+  <path d="M640 609 V630" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- d5 -->
+  <g id="d5">
+    <polygon points="640,634 770,680 640,726 510,680" fill="#F1F5F9" stroke="#475569" stroke-width="1.5"/>
+    <text x="640" y="685" text-anchor="middle" font-size="13" font-weight="700" fill="#0F172A">元が全基準に合格？</text>
+  </g>
+
+  <!-- d5 -> t6 (no) -->
+  <path d="M640 726 V766" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="654" y="751" font-size="12" font-weight="700" fill="#334155">いいえ</text>
+
+  <!-- d5 -> t7 (yes) -->
+  <path d="M770 680 H905 V942 H854" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="790" y="668" font-size="12" font-weight="700" fill="#334155">はい：改訂を省略</text>
+
+  <!-- t6 -->
+  <g id="t6">
+    <rect x="430" y="770" width="420" height="96" rx="10" fill="#E8F1FB" stroke="#1D4ED8" stroke-width="1.5"/>
+    <text x="640" y="797" text-anchor="middle" font-size="14" font-weight="700" fill="#0F172A">5. 改訂案を作り → 目的を保つか確認 → 採点</text>
+    <text x="640" y="822" text-anchor="middle" font-size="12" fill="#334155">合格数が上回り、必須基準の新たな不合格がなければ</text>
+    <text x="640" y="843" text-anchor="middle" font-size="12" fill="#334155">最良案を更新（最大3回くり返す）</text>
+  </g>
+
+  <!-- t6 -> t7 -->
+  <path d="M640 866 V906" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="654" y="891" font-size="12" fill="#334155">最良案を固定</text>
+
+  <!-- t7 -->
+  <g id="t7">
+    <rect x="430" y="910" width="420" height="64" rx="10" fill="#E8F1FB" stroke="#1D4ED8" stroke-width="1.5"/>
+    <text x="640" y="937" text-anchor="middle" font-size="14" font-weight="700" fill="#0F172A">6. 最終確認用3件で、元と最良案を比べる</text>
+    <text x="640" y="959" text-anchor="middle" font-size="12" fill="#334155">改善用とは別の課題で確かめる</text>
+  </g>
+
+  <!-- t7 -> results -->
+  <path d="M470 974 V1026" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <path d="M645 974 V1026" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- r_imp -->
+  <g id="r_imp">
+    <rect x="360" y="1030" width="190" height="78" rx="18" fill="#E7F6EC" stroke="#15803D" stroke-width="2.5"/>
+    <text x="455" y="1056" text-anchor="middle" font-size="14" font-weight="700" fill="#14532D">改善を観測</text>
+    <text x="455" y="1078" text-anchor="middle" font-size="11.5" fill="#334155">合格数が増え、必須基準の</text>
+    <text x="455" y="1096" text-anchor="middle" font-size="11.5" fill="#334155">新たな不合格がない</text>
+  </g>
+
+  <!-- r_none -->
+  <g id="r_none">
+    <rect x="565" y="1030" width="160" height="78" rx="18" fill="#F3F4F6" stroke="#6B7280" stroke-width="2.5"/>
+    <text x="645" y="1056" text-anchor="middle" font-size="14" font-weight="700" fill="#1F2937">改善なし</text>
+    <text x="645" y="1078" text-anchor="middle" font-size="11.5" fill="#334155">それ以外</text>
+    <text x="645" y="1096" text-anchor="middle" font-size="11.5" fill="#334155">（元のまま使う）</text>
+  </g>
+
+  <!-- r_inc -->
+  <g id="r_inc">
+    <rect x="740" y="1030" width="185" height="78" rx="18" fill="#FFFFFF" stroke="#B91C1C" stroke-width="2.5" stroke-dasharray="7 4"/>
+    <text x="832" y="1056" text-anchor="middle" font-size="14" font-weight="700" fill="#7F1D1D">未完了</text>
+    <text x="832" y="1078" text-anchor="middle" font-size="11.5" fill="#334155">2〜6のどこかで失敗・中断</text>
+    <text x="832" y="1096" text-anchor="middle" font-size="11.5" fill="#334155">新しい保存先でやり直す</text>
+  </g>
+
+  <!-- r_imp -> a8 -->
+  <path d="M455 1108 V1183 H314" fill="none" stroke="#334155" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="467" y="1150" font-size="12" fill="#334155">改善版と diff／cp のコマンドを表示</text>
+
+  <!-- a8 -->
+  <g id="a8">
+    <rect x="40" y="1140" width="270" height="86" rx="10" fill="#FFF3E0" stroke="#B45309" stroke-width="1.5"/>
+    <text x="175" y="1168" text-anchor="middle" font-size="14" font-weight="700" fill="#0F172A">7. diff を見て採用を決める</text>
+    <text x="175" y="1192" text-anchor="middle" font-size="12" fill="#334155">採用するなら表示された</text>
+    <text x="175" y="1211" text-anchor="middle" font-size="12" fill="#334155">バックアップと cp を実行</text>
+  </g>
+
+  <!-- Footer notes -->
+  <text x="20" y="1276" font-size="12.5" font-weight="700" fill="#0F172A">元の SKILL.md はツールが書き換えない。成果物は保存先の candidate/SKILL.md と comparison.md。</text>
+  <text x="20" y="1300" font-size="12" fill="#334155">補助ファイル（scripts/ など）やツール実行が必要なスキルは、2 の時点で対象外として止まる。</text>
+  <text x="20" y="1324" font-size="12" fill="#334155">橙の箱＝あなたの操作　青の箱＝ツールの処理　ひし形＝判定　破線の矢印＝直す場合の戻り　破線の箱＝制約・未完了</text>
+</svg>

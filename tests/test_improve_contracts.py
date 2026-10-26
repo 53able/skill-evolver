@@ -353,7 +353,8 @@ class PrepareScopeContracts(Fixture):
         cases = {
             'missing_frontmatter': BODY,
             'missing_description': SKILL.replace('description: Write clear responses\n', ''),
-            'companion_reference': SKILL + '\nRead references/style.md.\n',
+            # A plain mention of a missing file only warns (it may be an output); a broken link stops.
+            'companion_link_missing': SKILL + '\nRead [the style](references/style.md).\n',
             'relative_link': SKILL + '\nSee [guide](guide.md).\n',
             'over_64_kib': SKILL + 'x' * (64 * 1024) + '\n',
         }

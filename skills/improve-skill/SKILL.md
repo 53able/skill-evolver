@@ -1,6 +1,6 @@
 ---
 name: improve-skill
-description: Improve an existing self-contained text SKILL.md with skill-evolver, using the user's Claude Code or Codex subscription login. Generates an evaluation for the user to review, runs up to three bounded revisions only after explicit approval, and reports a candidate without overwriting the original. Use when the user asks to improve, evaluate, or tune an agent skill file. Don't use for skills that need scripts/, references/, assets/, tool execution, browsers, or external services.
+description: Improve an existing SKILL.md that answers in text with skill-evolver, using the user's Claude Code or Codex subscription login. Generates an evaluation for the user to review, runs up to three bounded revisions only after explicit approval, and reports a candidate without overwriting the original. Use when the user asks to improve, evaluate, or tune an agent skill file. Companion files (references/, assets/, scripts/) are used read-only and scripts are never run. Don't use for skills whose purpose requires running scripts or tools, browsers, or external services.
 ---
 
 # Improve a skill with skill-evolver

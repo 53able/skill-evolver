@@ -26,6 +26,14 @@ STATES = {'preparing': ('preparing', '準備中'), 'draft': ('waiting for your r
 
 # Ordered (fragment, English, Japanese); the first fragment found in the error text wins.
 HINTS = [
+    # Companion errors end with a file path, so match their fixed prefix before any other fragment.
+    ('unsupported: compan', 'Companion files must be UTF-8 text or binary inside the skill folder (references/, assets/, '
+     'scripts/ or linked), not hidden, symlinked or hard-linked; at most 32 files, 64 KiB per text file and 128 KiB in total '
+     '(and no more than half of the prompt limit once encoded), and every linked file must exist.',
+     '補助ファイルは、スキルのフォルダ内（references/・assets/・scripts/ またはリンク先）にあり、隠しファイル・シンボリックリンク・'
+     'ハードリンクでないことが必要です。最大32件、テキストは1件64 KiB・合計128 KiB（送信時の形式でプロンプト上限の半分）までで、リンク先は実在する必要があります。'),
+    ('companion snapshot hash differs', 'The saved companion snapshot was modified. Prepare again in a new directory.',
+     '保存済みの補助ファイルのスナップショットが変更されています。新しい出力先で prepare からやり直してください。'),
     ('cli_not_installed', 'Install the CLI and make sure it is on PATH.',
      'CLIをインストールし、PATHから実行できるようにしてください。'),
     ('unsupported_cli_version', 'Tested versions: Claude Code {claude} / Codex {codex}. To try another version, '
@@ -61,18 +69,16 @@ HINTS = [
      'evaluation.json を編集して基準を3〜12件、うち1件以上を required: true にし、improve report で確認してから run してください。'),
     ('run_deadline', 'The one-hour run limit was reached. Prepare again in a new directory, or try a faster model.',
      '1回の実行の時間上限（1時間）に達しました。新しい出力先で prepare からやり直すか、より速いモデルを試してください。'),
-    ('bundled file references', 'Relative links to other files are not supported; only URLs and #heading links.',
-     'ほかのファイルへの相対リンクは未対応です（URLと #見出し へのリンクのみ使えます）。'),
+    ('bundled file references', 'Relative links must point to files inside the skill folder (URLs and #heading links are fine).',
+     '相対リンクは、スキルのフォルダ内に実在するファイルを指す必要があります（URLと #見出し へのリンクは使えます）。'),
     ('already exists', 'Choose a new --output directory; each attempt uses its own directory.',
      '別の --output を指定してください。試行ごとに新しい保存先を使います。'),
     ('approval hash differs', 'The evaluation changed after you reviewed it. Run improve report and review it again.',
      '確認後に評価案が変わりました。improve report を実行し、もう一度確認してください。'),
-    ('original skill changed', 'The original SKILL.md changed. Run improve prepare again in a new directory.',
-     '元の SKILL.md が変更されました。新しい出力先で improve prepare からやり直してください。'),
+    ('original skill changed', 'The original SKILL.md or its companion files changed. Run improve prepare again in a new directory.',
+     '元の SKILL.md か補助ファイルが変更されました。新しい出力先で improve prepare からやり直してください。'),
     ('provider_profile_changed', 'The CLI version or settings differ from prepare. Prepare again in a new directory.',
      'CLIのバージョンや設定が prepare 時と異なります。新しい出力先で prepare からやり直してください。'),
-    ('companion files', 'Skills that reference scripts/, references/ or assets/ are not supported yet.',
-     'scripts/・references/・assets/ を参照するスキルはまだ対応していません。'),
     ('timeout', 'A model call exceeded its time limit (task and judging calls were already retried once). '
      'Prepare again in a new directory, or try a faster model.',
      'モデル呼び出しが時間上限を超えました（課題の実行と採点は1回再試行済み）。新しい出力先で prepare からやり直すか、'
@@ -98,7 +104,9 @@ def warning(text):
     untested = re.match(r'CLI version (\S+) is untested', text)
     if untested:
         return 'CLIバージョン {} は未検証です（--allow-untested-cli で許可）。'.format(untested.group(1))
-    return next((ja for prefix, ja in WARNINGS if text.startswith(prefix)), text)
+    if text.startswith('Mentioned files not found'):
+        return '本文に書かれているが見つからないファイル（モデルには渡していません）: ' + text.split(': ', 1)[1]
+    return next((ja for prefix, ja in WARNINGS if ja and text.startswith(prefix)), text)
 
 
 def hint(error):
@@ -223,7 +231,7 @@ def render(summary):
                       '  cp ' + source + ' ' + source + '.bak-$(date +%Y%m%d-%H%M%S)',
                       '  cp ' + candidate + ' ' + source]
     elif state == 'unsupported':
-        lines.append(_t('Choose a self-contained text skill.', '自己完結したテキスト系スキルを選んでください。'))
+        lines.append(_t('This skill needs scripts or tools to be run, which is not supported. Choose a skill whose responses can be judged as text.', 'このスキルはスクリプトやツールの実行が必要なため対象外です。応答をテキストとして評価できるスキルを選んでください。'))
     else:
         lines.append(_t('An interrupted or failed run is not resumed. Start improve prepare again in a new --output directory.',
                         '中断・失敗した実行は再開しません。新しい --output を指定して improve prepare からやり直してください。'))

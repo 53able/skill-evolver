@@ -4,7 +4,7 @@
 
 Language: English | [日本語](docs/ja-JP/README.md)
 
-Improve a self-contained text skill using your existing Claude Code or Codex login. The tool creates an evaluation for you to review, tries up to three purpose-preserving revisions, and saves a candidate plus a comparison report. It uses Python 3.11+ and the standard library. This workflow does not require Docker or a separate API key.
+Improve the `SKILL.md` of a skill that answers in text, using your existing Claude Code or Codex login. Companion files such as references and templates are used read-only. The tool creates an evaluation for you to review, tries up to three purpose-preserving revisions, and saves a candidate plus a comparison report. It uses Python 3.11+ and the standard library. This workflow does not require Docker or a separate API key.
 
 ## Getting started
 
@@ -68,7 +68,9 @@ To change it, edit `evaluation.json` and run `skill-evolver improve report <dire
 
 **What approval freezes:** answering `y` to `run` freezes the purpose, evaluation, model selector, CLI version and invocation settings. A changed input requires a new preparation in a new directory. Re-running a completed directory does not repeat model calls. A task execution or judging call that times out is retried once, since it changes nothing; other failed, interrupted or uncertain calls are not retried. For scripts, add `--json` and pass `approval_hash` from `improve report --json` to `run --approve-evaluation`. Exit codes: 0 success, 1 error, cancel or unsupported skill, 2 incomplete.
 
-**Scope:** skills fully contained in one `SKILL.md` of up to 64 KiB, without companion files. Only the quality of output produced by the body's instructions is improved; the frontmatter (`name`/`description`) and whether the skill gets triggered are neither changed nor evaluated. Code can be judged as text; code execution, browser/service actions and companion files are not supported. A body that contains path-like text with `scripts/`, `references/` or `assets/` (such as `scripts/run.sh` or `app/assets/x`), or relative links to other files, is refused even when the path only appears in prose (URLs and `#heading` links are fine).
+**Scope:** a `SKILL.md` of up to 64 KiB whose responses can be judged as text. Only the quality of output produced by the body's instructions is improved; the frontmatter (`name`/`description`) and whether the skill gets triggered are neither changed nor evaluated.
+
+**Companion files:** files under `references/`, `assets/` and `scripts/`, plus files the body mentions or links to, are frozen at prepare as a read-only snapshot and given to evaluation drafting, task execution, judging and revision. Companion files are never revised, and candidates may refer only to existing ones. `scripts/` are passed as text and **never executed**; skills whose purpose requires running scripts or tools are unsupported. Companion files must be UTF-8 text, not symlinks, at most 32 files, 64 KiB each and 128 KiB in total. A missing referenced file, or a companion file changed after prepare, stops the workflow. Words inside longer paths such as `app/assets/x` are not treated as companion files.
 
 **Limits and typical use:** a measured run with `haiku` and a small skill used 43 calls in about five minutes. If the original passes every development check, revisions are skipped to save calls. A directory left by a failed `prepare` cannot be reused and can be deleted. The limits are three revisions, 60 model calls (including the one for prepare), 120 seconds per call, one hour per run, 256 KiB per prompt, 1 MiB each for the CLI's stdout and stderr. CLI-reported usage is recorded when available; unknown usage and costs remain unknown. These limits do not guarantee an exact token, invoice or subscription-quota ceiling. Usage of a call that timed out is not observed, even if the provider kept generating.
 
